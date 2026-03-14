@@ -2307,6 +2307,15 @@ end;
 
 procedure TfrmNewQSO.tmrUploadAllTimer(Sender: TObject);
 begin
+  if (WhatUpNext = upLoTW) then
+  begin
+    if cqrini.ReadBool('LoTW','LoTWUP',False) then
+      frmLogUploadStatus.UploadDataToLoTW;
+    tmrUploadAll.Enabled := False;
+    UploadAll            := False;
+    WhatUpNext           := upHamQTH;
+    exit
+  end;
   if (not frmLogUploadStatus.thRunning) then
   begin
     case WhatUpNext of
@@ -2344,9 +2353,7 @@ begin
                       if cqrini.ReadBool('OnlineLog','QrzUpOnline',False) then
                         frmLogUploadStatus.UploadDataToQrzLog
                     end;
-                    tmrUploadAll.Enabled := False;
-                    UploadAll            := False;
-                    WhatUpNext           := upHamQTH
+                    WhatUpNext           := upLoTW
                   end
     end //case
   end

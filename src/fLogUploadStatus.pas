@@ -46,6 +46,7 @@ type
     procedure UploadDataToClubLog(ToAll : Boolean = False);
     procedure UploadDataToHrdLog(ToAll : Boolean = False);
     procedure UploadDataToQrzLog(ToAll : Boolean = False);
+    procedure UploadDataToLoTW;
     procedure UploadDataToAll;
     procedure SyncUploadInformation;
   end; 
@@ -72,7 +73,7 @@ var
 implementation
 {$R *.lfm}
 
-uses dData, dUtils, uMyIni, fNewQSO;
+uses dData, dUtils, uMyIni, fNewQSO, process;
 
 function TUploadThread.CheckEnabledOnlineLogs : Boolean;
 const
@@ -279,12 +280,14 @@ begin
         if UpSuccess then
         begin
           Response := dmLogUpload.GetResultMessage(WhereToUpload,Response,ResultCode,ErrorCode);
-          if (WhereToUpload = upQrzLog) and cqrini.ReadBool('OnlineLog','QrzUP',False) and ((Command = 'INSERT') or (Command = 'UPDATE')) then
+          if (WhereToUpload = upQrzLog) and cqrini.ReadBool('OnlineLog','QrzUP',False) and ((Command = 'INSERT') or (Command = 'UPDATE')) and (ErrorCode = 0) then
           begin
             if (LeftStr(Response,2)='OK') then
             begin
-              tre := '.*OK \((\d+)\).*';
-              qrzLogId := ReplaceRegExpr(tre, Response, '$1', True);
+              // Extract just the numeric LOGID from 'OK (12345)'
+              qrzLogId := '';
+              if Pos('(', Response) > 0 then
+                qrzLogId := copy(Response, Pos('(',Response)+1, Pos(')',Response)-Pos('(',Response)-1);
               cqrlogId := dmLogUpload.Q.FieldByName('id_cqrlog_main').AsString;
               // As QSO data is inserted into the db before qrz.com is log uploaded
               // we need to update cqrlog_main and log_changes tables after upload
@@ -310,7 +313,7 @@ begin
               end
             end;
           end;
-          if (Response='OK') then
+          if (Response='OK') or (LeftStr(Response,2)='OK') then
             ToMainThread('','OK')
           else
             ToMainThread(Response,'');
@@ -323,8 +326,10 @@ begin
             end;
             Break //cannot continue when fatal error
           end
-          else
-            dmLogUpload.MarkAsUploaded(GetLogName,dmLogUpload.Q.FieldByName('id').AsInteger)
+          else begin
+            dmLogUpload.MarkAsUploaded(GetLogName,dmLogUpload.Q.FieldByName('id').AsInteger);
+            ErrorCode := 0  //reset duplicate/warning codes so Done... is shown
+          end
         end
         else begin
           if AlreadyDel then  //if cmd was update, delete was successful but new insert was not
@@ -335,11 +340,14 @@ begin
           ErrorCode := 1;
           Break
         end;
-        Sleep(2000); //we don't want to make small DDOS attack to server
+        Sleep(500); //we don't want to make small DDOS attack to server
         dmLogUpload.Q.Next
       end; //while not dmLogUpload.Q.Eof do
 
-      if not (ErrorCode = 1) then
+      // Always send Done so next service in timer cycle can start
+      if (ErrorCode = 1) then
+        ToMainThread('Failed - continuing to next service','')
+      else
         ToMainThread('Done ...','')
     finally
       dmLogUpload.Q.Close;
@@ -505,12 +513,64 @@ begin
   UploadDataToOnlineLogs(upQrzLog, ToAll)
 end;
 
+
+procedure TfrmLogUploadStatus.UploadDataToLoTW;
+var
+  AdifFile  : String;
+  TqslCmd   : String;
+  TqslLoc   : String;
+  AdifText  : String;
+  F         : TextFile;
+  Proc      : TProcess;
+  ExitCode  : Integer;
+begin
+  if not Showing then Show;
+  if not cqrini.ReadBool('LoTW','LoTWUP',False) then
+  begin
+    mStatus.AddLine('LoTW: not enabled', clRed, clWhite, 0);
+    exit
+  end;
+  TqslLoc  := cqrini.ReadString('LoTW','LoTWLocation','');
+  AdifFile := GetTempDir + 'cqrlog_lotw_upload.adi';
+  AdifText := dmLogUpload.GetLoTWAdif;
+  if AdifText = '' then
+  begin
+    mStatus.AddLine('LoTW: All QSO already uploaded', clGreen, clWhite, 0);
+    exit
+  end;
+  AssignFile(F, AdifFile);
+  Rewrite(F);
+  Writeln(F, '<ADIF_VER:5>3.1.0');
+  Writeln(F, '<EOH>');
+  Write(F, AdifText);
+  CloseFile(F);
+  mStatus.AddLine('LoTW: Signing and uploading...', clBlue, clWhite, 0);
+  TqslCmd := '/usr/bin/tqsl -d -l "' + TqslLoc + '" -u -x -q -a compliant ' + AdifFile;
+  Proc := TProcess.Create(nil);
+  try
+    Proc.CommandLine := TqslCmd;
+    Proc.Options := [poWaitOnExit];
+    Proc.Execute;
+    ExitCode := Proc.ExitCode;
+  finally
+    Proc.Free
+  end;
+  if (ExitCode = 0) or (ExitCode = 8) or (ExitCode = 9) then
+  begin
+    mStatus.AddLine('LoTW: Upload OK', clGreen, clWhite, 0);
+    dmLogUpload.MarkLoTWUploaded
+  end
+  else
+    mStatus.AddLine('LoTW: Upload failed (exit=' + IntToStr(ExitCode) + ')', clRed, clWhite, 0);
+end;
+
 procedure TfrmLogUploadStatus.UploadDataToAll;
 begin
   UploadDataToOnlineLogs(upHamQTH, True);
   UploadDataToOnlineLogs(upClubLog, True);
   UploadDataToOnlineLogs(upHrdLog, True);
-  UploadDataToOnlineLogs(upQrzLog, True)
+  UploadDataToOnlineLogs(upQrzLog, True);
+  UploadDataToLoTW
 end;
 
 end.

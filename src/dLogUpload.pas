@@ -18,7 +18,7 @@ const
   C_ALLDONE      = 'ALLDONE';
   C_CLUBLOG_API  = '21507885dece41ca049fec7fe02a813f2105aff2';
 type
-  TWhereToUpload = (upHamQTH, upClubLog, upHrdLog, upQrzLog);
+  TWhereToUpload = (upHamQTH, upClubLog, upHrdLog, upQrzLog, upLoTW);
 
 type
 
@@ -60,6 +60,8 @@ type
     procedure PrepareDeleteHeader(where : TWhereToUpload; id_log_changes : Integer; data : TStringList);
     procedure MarkAsUploaded(LogName : String; id_log_changes : Integer);
     procedure MarkAsUpDeleted(id_log_upload : Integer);
+    function  GetLoTWAdif : String;
+    procedure MarkLoTWUploaded;
     procedure DisableOnlineLogSupport;
     procedure EnableOnlineLogSupport(RemoveOldChanges : Boolean = True);
   end;
@@ -686,7 +688,7 @@ begin
                     Result := 'https://clublog.org/realtime.php'
                 end;
     upHrdLog  : Result := 'http://robot.hrdlog.net/NewEntry.aspx' ;
-    upQrzLog  : Result := 'http://logbook.qrz.com/api'
+    upQrzLog  : Result := 'https://logbook.qrz.com/api'
   end //case
 end;
 
@@ -769,8 +771,14 @@ begin
     upQrzLog  : begin
                   case ParseQrzLogOutput(Response,Result) of
                     200 : begin
-                               tre := '.*LOGID=(\d+).*';
-                               qrzLogId := ReplaceRegExpr(tre, Response, '$1', True);
+                               // Extract LOGID value safely without regex
+                               qrzLogId := '';
+                               if Pos('LOGID=', Response) > 0 then
+                               begin
+                                 qrzLogId := copy(Response, Pos('LOGID=',Response)+6, Length(Response));
+                                 if Pos('&', qrzLogId) > 0 then
+                                   qrzLogId := copy(qrzLogId, 1, Pos('&',qrzLogId)-1)
+                               end;
                                Result := 'OK ('+qrzLogId+')';
                           end;
                     // 500 - Missing LogID Parameter
@@ -848,7 +856,8 @@ function TdmLogUpload.LogUploadEnabled : Boolean;
 begin
   Result := cqrini.ReadBool('OnlineLog','HaUp',False) or
             cqrini.ReadBool('OnlineLog','ClUp',False) or
-            cqrini.ReadBool('OnlineLog','HrUp',False)
+            cqrini.ReadBool('OnlineLog','HrUp',False) or
+            cqrini.ReadBool('OnlineLog','QrzUp',False)
 end;
 
 procedure TdmLogUpload.DisableOnlineLogSupport;
@@ -960,5 +969,53 @@ begin
 end;
 
 
-end.
+function TdmLogUpload.GetLoTWAdif : String;
+var
+  Qx  : TSQLQuery;
+  trx : TSQLTransaction;
+begin
+  Result := '';
+  Qx  := TSQLQuery.Create(nil);
+  trx := TSQLTransaction.Create(nil);
+  try
+    Qx.DataBase  := dmData.LogUploadCon;
+    trx.DataBase := dmData.LogUploadCon;
+    Qx.Transaction := trx;
+    trx.StartTransaction;
+    Qx.SQL.Text := 'select id_cqrlog_main from cqrlog_main where (lotw_qsls is null or lotw_qsls='+chr(39)+chr(39)+') order by id_cqrlog_main';
+    Qx.Open;
+    while not Qx.Eof do
+    begin
+      Result := Result + GetQSOInAdif(Qx.Fields[0].AsInteger);
+      Qx.Next
+    end;
+  finally
+    Qx.Close;
+    trx.Rollback;
+    Qx.Free;
+    trx.Free
+  end
+end;
 
+procedure TdmLogUpload.MarkLoTWUploaded;
+var
+  Qx  : TSQLQuery;
+  trx : TSQLTransaction;
+begin
+  Qx  := TSQLQuery.Create(nil);
+  trx := TSQLTransaction.Create(nil);
+  try
+    Qx.DataBase  := dmData.LogUploadCon;
+    trx.DataBase := dmData.LogUploadCon;
+    Qx.Transaction := trx;
+    trx.StartTransaction;
+    Qx.SQL.Text := 'update cqrlog_main set lotw_qsls='+chr(39)+'Y'+chr(39)+', lotw_qslsdate=NOW() where (lotw_qsls is null or lotw_qsls='+chr(39)+chr(39)+')';
+    Qx.ExecSQL;
+    trx.Commit
+  finally
+    Qx.Free;
+    trx.Free
+  end
+end;
+
+end.
