@@ -43,6 +43,18 @@ const
    ExNoEquals = 2; 
 
 type
+  TLoTWStatus = (
+    lsNeverWorked,
+    lsWorkedUnconfirmed,
+    lsWorkedConfirmed
+  );
+
+  TSpotLoTWTriple = record
+    Country : TLoTWStatus;
+    Band    : TLoTWStatus;
+    ModeStr : TLoTWStatus;
+  end;
+
   { TdmDXCluster }
   TdmDXCluster = class(TDataModule)
     qBands: TSQLQuery;
@@ -57,11 +69,15 @@ type
     trBands: TSQLTransaction;
     procedure DataModuleCreate(Sender: TObject);
     procedure DataModuleDestroy(Sender: TObject);
+    function RunLoTWStatusQuery(const aWhere: String): TLoTWStatus;
+    function PackTriple(const t: TSpotLoTWTriple): String;
+    function UnpackTriple(const s: String): TSpotLoTWTriple;
     procedure Q1BeforeOpen(DataSet: TDataSet);
     procedure qBandsBeforeOpen(DataSet: TDataSet);
     procedure QBeforeOpen(DataSet: TDataSet);
     procedure qDXCCRefBeforeOpen(DataSet: TDataSet);
   private
+    FLoTWCache   : TStringList;
     DXCCRefArray   : Array of TDXCCRef;
     DXCCDelArray   : Array of Integer;
     ExceptionArray : Array of String;
@@ -96,6 +112,8 @@ type
     procedure AddToMarkFile(prefix,call : String;sColor : Integer;Max,lat,long : String);
     procedure GetRealCoordinate(lat,long : String; var latitude, longitude: Currency);
     procedure ReloadDXCCTables;
+    function  GetSpotLoTWTriple(aAdif: Word; const aBand, aMode: String): TSpotLoTWTriple;
+    procedure InvalidateLoTWCache;
     procedure LoadDXCCRefArray;
     procedure LoadExceptionArray;
     procedure RunCallAlertCmd(call,band,mode,freq,freeText : String);
@@ -861,6 +879,10 @@ var
   i : Integer;
 begin
   InitCriticalSection(csDX);
+  FLoTWCache            := TStringList.Create;
+  FLoTWCache.Sorted     := True;
+  FLoTWCache.Duplicates := dupIgnore;
+  FLoTWCache.CaseSensitive := False;
 
   dmData.dbDXC.KeepConnection := True;
   for i:=0 to ComponentCount-1 do
@@ -1234,6 +1256,105 @@ begin
   end
 end;
 
+function TdmDXCluster.PackTriple(const t: TSpotLoTWTriple): String;
+const
+  Ch: array[TLoTWStatus] of Char = ('N','U','C');
+begin
+  Result := Ch[t.Country] + Ch[t.Band] + Ch[t.ModeStr];
+end;
+
+function TdmDXCluster.UnpackTriple(const s: String): TSpotLoTWTriple;
+  function C(ch: Char): TLoTWStatus;
+  begin
+    case ch of
+      'C': Result := lsWorkedConfirmed;
+      'U': Result := lsWorkedUnconfirmed;
+    else   Result := lsNeverWorked;
+    end;
+  end;
+begin
+  if Length(s) >= 3 then
+  begin
+    Result.Country := C(s[1]);
+    Result.Band    := C(s[2]);
+    Result.ModeStr := C(s[3]);
+  end
+  else
+  begin
+    Result.Country := lsNeverWorked;
+    Result.Band    := lsNeverWorked;
+    Result.ModeStr := lsNeverWorked;
+  end;
+end;
+
+function TdmDXCluster.RunLoTWStatusQuery(const aWhere: String): TLoTWStatus;
+var
+  LQ  : TSQLQuery;
+  cnt : Integer;
+  cfm : Integer;
+begin
+  Result := lsNeverWorked;
+  LQ := TSQLQuery.Create(nil);
+  try
+    LQ.SQLConnection := Q.SQLConnection;
+    LQ.SQL.Text :=
+      'SELECT COUNT(*) AS cnt, ' +
+      'SUM(CASE WHEN lotw_qslr=''L'' THEN 1 ELSE 0 END) AS cfm ' +
+      'FROM ' + dmData.DBName + '.cqrlog_main ' +
+      'WHERE ' + aWhere;
+    try
+      LQ.Open;
+      cnt := LQ.FieldByName('cnt').AsInteger;
+      cfm := LQ.FieldByName('cfm').AsInteger;
+      LQ.Close;
+    except
+      on E: Exception do
+      begin
+        if dmData.DebugLevel >= 1 then
+          Writeln('RunLoTWStatusQuery error: ', E.Message, ' WHERE: ', aWhere);
+        Exit;
+      end;
+    end;
+  finally
+    LQ.Free;
+  end;
+  if cnt = 0 then
+    Result := lsNeverWorked
+  else if cfm > 0 then
+    Result := lsWorkedConfirmed
+  else
+    Result := lsWorkedUnconfirmed;
+end;
+
+function TdmDXCluster.GetSpotLoTWTriple(aAdif: Word;
+  const aBand, aMode: String): TSpotLoTWTriple;
+var
+  Key : String;
+  Idx : Integer;
+begin
+  if aAdif = 0 then
+  begin
+    Result.Country := lsNeverWorked;
+    Result.Band    := lsNeverWorked;
+    Result.ModeStr := lsNeverWorked;
+    Exit;
+  end;
+  Key := IntToStr(aAdif) + '|' + LowerCase(aBand) + '|' + LowerCase(aMode);
+  Idx := FLoTWCache.IndexOfName(Key);
+  if Idx >= 0 then
+  begin
+    Result := UnpackTriple(FLoTWCache.ValueFromIndex[Idx]);
+    Exit;
+  end;
+  Result.Country := RunLoTWStatusQuery('adif=' + IntToStr(aAdif));
+  Result.Band    := RunLoTWStatusQuery('adif=' + IntToStr(aAdif) + ' AND band=' + QuotedStr(aBand));
+  Result.ModeStr := RunLoTWStatusQuery('adif=' + IntToStr(aAdif) + ' AND band=' + QuotedStr(aBand) + ' AND mode=' + QuotedStr(aMode));
+  FLoTWCache.Values[Key] := PackTriple(Result);
+end;
+
+procedure TdmDXCluster.InvalidateLoTWCache;
+begin
+  if Assigned(FLoTWCache) then FLoTWCache.Clear;
+end;
 
 end.
-

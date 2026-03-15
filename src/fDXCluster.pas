@@ -18,7 +18,8 @@ interface
 uses
   Classes, SysUtils, LResources, Forms, Controls, Graphics, Dialogs, inifiles,
   ExtCtrls, ComCtrls, StdCtrls, Buttons, httpsend, uColorMemo,
-  db, lcltype, Menus, ActnList, Spin, dynlibs, lNetComponents, lnet;
+  db, lcltype, Menus, ActnList, Spin, dynlibs, lNetComponents, lnet, Grids,
+  dDXCluster;
 
 type
   { TfrmDXCluster }
@@ -143,6 +144,11 @@ type
 
     procedure WebDbClick(where:longint;mb:TmouseButton;ms:TShiftState);
     procedure TelDbClick(where:longint;mb:TmouseButton;ms:TShiftState);
+    procedure grdSpotsDblClick(Sender: TObject);
+    procedure grdSpotsDrawCell(Sender: TObject; aCol, aRow: Integer;
+                               aRect: TRect; aState: TGridDrawState);
+    procedure DrawLoTWIcon(ACanvas: TCanvas; const ARect: TRect;
+                           AStatus: TLoTWStatus);
     procedure ConnectToWeb;
     procedure ConnectToTelnet;
     procedure SynWeb;
@@ -189,6 +195,7 @@ var
   WebSpots     : TColorMemo;
   TelSpots     : TColorMemo;
   ChatSpots    : TColorMemo;
+  grdSpots     : TStringGrid;
   mindex       : Integer;
   ThInfo       : String;
   ThSpot       : String;
@@ -196,15 +203,37 @@ var
   ThBckColor   : Integer;
   ThChat       : String;
   ChBckColor   : Integer;
+  ThAdif       : Word;
+  ThBand       : String;
+  ThMode       : String;
+  ThFreq       : String;
+  ThCall       : String;
   TelThread    : TTelThread;
   SentStartCmd : Boolean;
 
 implementation
-{$R *.lfm}
-{ TfrmDXCluster }
 
-uses dUtils, fDXClusterList, dData, dDXCluster, fMain, fTRXControl, fNewQSO, fBandMap,
+uses dUtils, fDXClusterList, dData, fMain, fTRXControl, fNewQSO, fBandMap,
      uMyIni, fPreferences;
+
+{$R *.lfm}
+
+const
+  GC_TIME    = 0;
+  GC_SPOTTER = 1;
+  GC_FREQ    = 2;
+  GC_CALL    = 3;
+  GC_BAND    = 4;
+  GC_MODE    = 5;
+  GC_COUNTRY = 6;
+  GC_COMMENT = 7;
+  GC_ST_CTY  = 8;
+  GC_ST_BAND = 9;
+  GC_ST_MODE = 10;
+  GC_ADIF    = 11;
+  GC_TOTAL   = 12;
+  GC_ICON_W  = 36;
+{ TfrmDXCluster }
 
 procedure TfrmDXCluster.ConnectToWeb;
 var
@@ -427,6 +456,46 @@ begin
   TelSpots.oncDblClick := @TelDbClick;
   TelSpots.Align       := alClient;
   TelSpots.setLanguage(1);
+
+  { --- grdSpots --- }
+  grdSpots                := TStringGrid.Create(Self);
+  grdSpots.Parent         := pnlTelnet;
+  grdSpots.Align          := alClient;
+  grdSpots.ColCount       := GC_TOTAL;
+  grdSpots.RowCount       := 2;
+  grdSpots.FixedRows      := 1;
+  grdSpots.FixedCols      := 0;
+  grdSpots.DefaultDrawing := True;
+  grdSpots.Options        := [goRowSelect, goThumbTracking, goVertLine, goHorzLine, goFixedVertLine, goFixedHorzLine, goColSizing];
+  grdSpots.ScrollBars       := ssAutoVertical;
+  grdSpots.ExtendedColSizing := True;
+  grdSpots.AlternateColor    := RGBToColor(232, 236, 242);
+  grdSpots.OnDrawCell     := @grdSpotsDrawCell;
+  grdSpots.OnDblClick     := @grdSpotsDblClick;
+  grdSpots.ColWidths[GC_TIME]    := 48;
+  grdSpots.ColWidths[GC_SPOTTER] := 72;
+  grdSpots.ColWidths[GC_FREQ]    := 68;
+  grdSpots.ColWidths[GC_CALL]    := 72;
+  grdSpots.ColWidths[GC_BAND]    := 42;
+  grdSpots.ColWidths[GC_MODE]    := 46;
+  grdSpots.ColWidths[GC_COUNTRY] := 100;
+  grdSpots.ColWidths[GC_COMMENT] := 200;
+  grdSpots.ColWidths[GC_ST_CTY]  := GC_ICON_W;
+  grdSpots.ColWidths[GC_ST_BAND] := GC_ICON_W;
+  grdSpots.ColWidths[GC_ST_MODE] := GC_ICON_W;
+  grdSpots.ColWidths[GC_ADIF]    := 0;
+  grdSpots.Cells[GC_TIME,    0]  := 'Time';
+  grdSpots.Cells[GC_SPOTTER, 0]  := 'Spotter';
+  grdSpots.Cells[GC_FREQ,    0]  := 'Freq';
+  grdSpots.Cells[GC_CALL,    0]  := 'DX Call';
+  grdSpots.Cells[GC_BAND,    0]  := 'Band';
+  grdSpots.Cells[GC_MODE,    0]  := 'Mode';
+  grdSpots.Cells[GC_COUNTRY, 0]  := 'Country';
+  grdSpots.Cells[GC_COMMENT, 0]  := 'Comment';
+  grdSpots.Cells[GC_ST_CTY,  0]  := 'Cty';
+  grdSpots.Cells[GC_ST_BAND, 0]  := 'Bnd';
+  grdSpots.Cells[GC_ST_MODE, 0]  := 'Mod';
+  grdSpots.Cells[GC_ADIF,    0]  := '';
 
   ChBckColor  := clWindow;
   pnlChat.Color := ChBckColor;
@@ -1291,6 +1360,12 @@ begin
   if index = 4 then
     sColor := cfgNeedQSLColor;
 
+  ThAdif := adif;
+  ThBand := band;
+  ThMode := mode;
+  ThFreq := FloatToStr(kmitocet/1000);
+  ThCall := call;
+
   if (cont='') or (prefix='') then
     ToBandMap := True; //for MM stations etc.
 
@@ -1585,32 +1660,63 @@ begin
 end;
 
 procedure TfrmDXCluster.SynTelnet;
+var
+  spotter  : String;
+  dxcall   : String;
+  freq     : String;
+  comment  : String;
+  spottime : String;
+  i        : Integer;
 begin
-  //if dmData.DebugLevel>=1 then Writeln('TfrmDXCluster.SynTelnet - begin ');
-  if ThSpot = '' then
-    exit;
-  //if dmData.DebugLevel>=1 then Writeln('TfrmDXCluster.SynTelnet - before MapToScreen');
-  //frmBandMap.MapToScreen;
-  //if dmData.DebugLevel>=1 then Writeln('TfrmDXCluster.SynTelnet - Before ]'yu
-  if ConTelnet then
+  if ThSpot = '' then Exit;
+  if not ConTelnet then Exit;
+
+  { Extract spotter from "DX de CALLSIGN:" prefix }
+  spotter := '';
+  i := Pos('DX DE ', UpperCase(ThSpot));
+  if i > 0 then
   begin
-    TelSpots.DisableAutoRepaint(true);
-    TelSpots.AddLine(ThSpot,ThColor,ThBckColor,0);
-    TelSpots.DisableAutoRepaint(false)
-  end
-  else begin
-    {
-    if WebSpots.Search(ThSpot,0,True,True) = -1 then
-    begin
-      WebSpots.DisableAutoRepaint(true);
-      WebSpots.vloz_vetu(ThSpot,ThColor,ThBckColor,0,0);
-      WebSpots.DisableAutoRepaint(false);
-    end
-    }
+    spotter := Trim(copy(ThSpot, i + 6, Pos(':', ThSpot) - i - 6));
+    { Strip -# cluster node suffixes e.g. K9PW-5 -> K9PW }
+    if Pos('-', spotter) > 0 then
+      spotter := copy(spotter, 1, Pos('-', spotter) - 1);
   end;
-  //if dmData.DebugLevel>=1 then Writeln('TfrmDXCluster.SynTelnet - before PridejVetu ');
-  //if dmData.DebugLevel>=1 then Writeln('TfrmDXCluster.SynTelnet - after zakaz_kresleni');
-  //Sleep(200)
+
+  { Frequency and callsign already parsed by ShowSpot }
+  freq   := ThFreq;
+  dxcall := ThCall;
+
+  { Time: scan words from end looking for NNNNz pattern }
+  spottime := '';
+  i := Length(ThSpot);
+  while i > 0 do
+  begin
+    while (i > 0) and (ThSpot[i] = ' ') do Dec(i);
+    { mark end of word }
+    freq := Trim(copy(ThSpot, i - 4, 5));
+    if (Length(freq) = 5) and (UpCase(freq[5]) = 'Z')
+       and (freq[1] >= '0') and (freq[1] <= '2') then
+    begin
+      spottime := freq;
+      Break;
+    end;
+    while (i > 0) and (ThSpot[i] <> ' ') do Dec(i);
+  end;
+
+  { Comment: free text between callsign and time }
+  comment := dmDXCluster.GetfreeTextFromSpot(ThSpot);
+
+  grdSpots.InsertRowWithValues(1, [
+    spottime, spotter, freq, dxcall,
+    ThBand, ThMode,
+    dmDXCluster.CountryFromADIF(ThAdif),
+    comment, '', '', '',
+    IntToStr(ThAdif)]);
+
+  if grdSpots.RowCount > 501 then
+    grdSpots.DeleteRow(grdSpots.RowCount - 1);
+
+  dmDXCluster.GetSpotLoTWTriple(ThAdif, ThBand, ThMode);
 end;
 procedure TfrmDXCluster.SynChat;
 begin
@@ -1674,6 +1780,119 @@ begin
     mnuCallalert.Caption := 'Enable callsign alert'
 end;
 
-end.
+procedure TfrmDXCluster.grdSpotsDblClick(Sender: TObject);
+var
+  row  : Integer;
+  freq : String;
+  call : String;
+  mode : String;
+  stmp : String;
+  etmp : Extended;
+begin
+  row := grdSpots.Row;
+  if row < 1 then Exit;
+  call := Trim(grdSpots.Cells[GC_CALL, row]);
+  freq := Trim(grdSpots.Cells[GC_FREQ, row]);
+  mode := Trim(grdSpots.Cells[GC_MODE, row]);
+  if call = '' then Exit;
+  if not TryStrToFloat(freq, etmp) then Exit;
+  if mode = '' then
+    if (not dmData.BandModFromFreq(freq, mode, stmp)) or (mode = '') then Exit;
+  frmNewQSO.NewQSOFromSpot(call, freq, mode);
+end;
 
-                                 
+procedure TfrmDXCluster.DrawLoTWIcon(ACanvas: TCanvas; const ARect: TRect;
+                                     AStatus: TLoTWStatus);
+var
+  CX, CY, S: Integer;
+  BadgeRect: TRect;
+  BW: Integer;
+begin
+  CX := (ARect.Left + ARect.Right)  div 2;
+  CY := (ARect.Top  + ARect.Bottom) div 2;
+  S  := 5;
+  BW := 11;  { badge half-width }
+
+  { Draw rounded badge background }
+  BadgeRect := Rect(CX - BW, CY - BW, CX + BW, CY + BW);
+  ACanvas.Pen.Style := psClear;  { no border on badge }
+  case AStatus of
+    lsNeverWorked:       ACanvas.Brush.Color := RGBToColor(180, 40, 40);
+    lsWorkedUnconfirmed: ACanvas.Brush.Color := RGBToColor(210, 140, 0);
+    lsWorkedConfirmed:   ACanvas.Brush.Color := RGBToColor(59, 120, 30);
+  end;
+  ACanvas.RoundRect(BadgeRect.Left, BadgeRect.Top,
+                    BadgeRect.Right, BadgeRect.Bottom, 6, 6);
+
+  { Draw white icon on top of solid badge }
+  ACanvas.Pen.Width     := 2;
+  ACanvas.Pen.EndCap    := pecRound;
+  ACanvas.Pen.JoinStyle := pjsRound;
+  ACanvas.Pen.Style     := psSolid;
+  ACanvas.Pen.Color     := RGBToColor(255, 255, 255);
+  ACanvas.Brush.Style   := bsClear;
+  case AStatus of
+    lsNeverWorked:
+    begin
+      ACanvas.Line(CX-S, CY-S, CX+S, CY+S);
+      ACanvas.Line(CX+S, CY-S, CX-S, CY+S);
+    end;
+    lsWorkedUnconfirmed:
+    begin
+      ACanvas.Line(CX-S, CY-S, CX+S, CY+S);
+      ACanvas.Line(CX+S, CY-S, CX-S, CY+S);
+    end;
+    lsWorkedConfirmed:
+    begin
+      ACanvas.Line(CX-S, CY,   CX-1, CY+S);
+      ACanvas.Line(CX-1, CY+S, CX+S, CY-S);
+    end;
+  end;
+  ACanvas.Pen.Width  := 1;
+  ACanvas.Pen.Style  := psSolid;
+  ACanvas.Brush.Style := bsSolid;
+end;
+
+procedure TfrmDXCluster.grdSpotsDrawCell(Sender: TObject; aCol, aRow: Integer;
+                                          aRect: TRect; aState: TGridDrawState);
+var
+  Triple   : TSpotLoTWTriple;
+  adif     : Word;
+  band     : String;
+  mode     : String;
+  cellText : String;
+  ts       : TTextStyle;
+begin
+  { Only custom draw the three icon columns - let grid handle everything else }
+  if not (aCol in [GC_ST_CTY, GC_ST_BAND, GC_ST_MODE]) then Exit;
+  if aRow = 0 then Exit;
+
+  { Background }
+  if gdSelected in aState then
+    grdSpots.Canvas.Brush.Color := clHighlight
+  else if Odd(aRow) then
+  begin
+    if Red(ColorToRGB(clWindow)) > 128 then
+      grdSpots.Canvas.Brush.Color := RGBToColor(232, 236, 242)
+    else
+      grdSpots.Canvas.Brush.Color := RGBToColor(50, 54, 62);
+  end
+  else
+    grdSpots.Canvas.Brush.Color := clWindow;
+  grdSpots.Canvas.FillRect(aRect);
+
+  adif := Word(StrToIntDef(grdSpots.Cells[GC_ADIF, aRow], 0));
+  band := grdSpots.Cells[GC_BAND, aRow];
+  mode := grdSpots.Cells[GC_MODE, aRow];
+  if adif > 0 then
+  begin
+    Triple := dmDXCluster.GetSpotLoTWTriple(adif, band, mode);
+    case aCol of
+      GC_ST_CTY  : DrawLoTWIcon(grdSpots.Canvas, aRect, Triple.Country);
+      GC_ST_BAND : DrawLoTWIcon(grdSpots.Canvas, aRect, Triple.Band);
+      GC_ST_MODE : DrawLoTWIcon(grdSpots.Canvas, aRect, Triple.ModeStr);
+    end;
+  end;
+end;
+
+end.
