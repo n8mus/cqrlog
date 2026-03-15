@@ -141,6 +141,9 @@ type
 
     HistCmd      : array [0..4] of string;
     HistPtr      : integer;
+    FResizeCol   : Integer;
+    FResizeX     : Integer;
+    FResizeW     : Integer;
 
     procedure WebDbClick(where:longint;mb:TmouseButton;ms:TShiftState);
     procedure TelDbClick(where:longint;mb:TmouseButton;ms:TShiftState);
@@ -165,6 +168,11 @@ type
     function  GetSplit(spot : String) :String;
     procedure StoreLastCmd(LastCmd:string);
     function  GetHistCmd:string;
+    procedure SaveColWidths;
+    procedure LoadColWidths;
+    procedure grdSpotsMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure grdSpotsMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure grdSpotsMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
   public
     ConWeb    : Boolean;
     ConTelnet : Boolean;
@@ -299,6 +307,7 @@ begin
   cqrini.WriteString('DXCluster','Port',telPort);
   cqrini.WriteString('DXCluster','User',telUser);
   cqrini.WriteString('DXCluster','Pass',telPass);
+  SaveColWidths;
   cqrini.SaveToDisk;
   if ConWeb then
     btnWebConnect.Click;
@@ -472,6 +481,10 @@ begin
   grdSpots.AlternateColor    := RGBToColor(232, 236, 242);
   grdSpots.OnDrawCell     := @grdSpotsDrawCell;
   grdSpots.OnDblClick     := @grdSpotsDblClick;
+  grdSpots.OnMouseDown    := @grdSpotsMouseDown;
+  grdSpots.OnMouseMove    := @grdSpotsMouseMove;
+  grdSpots.OnMouseUp      := @grdSpotsMouseUp;
+  FResizeCol := -1;
   grdSpots.ColWidths[GC_TIME]    := 48;
   grdSpots.ColWidths[GC_SPOTTER] := 72;
   grdSpots.ColWidths[GC_FREQ]    := 68;
@@ -641,6 +654,7 @@ begin
   if cqrini.ReadBool('DXCluster', 'ConAfterRun', False) then
     tmrAutoConnect.Enabled := True;
   pnlChat.Height := cqrini.ReadInteger('DXCluster','ChatSize',2);  //default now 2 = invisible
+  LoadColWidths;
 end;
 
 procedure TfrmDXCluster.btnClearClick(Sender: TObject);
@@ -1778,6 +1792,112 @@ begin
     mnuCallalert.Caption := 'Callsign alert enabled'
   else
     mnuCallalert.Caption := 'Enable callsign alert'
+end;
+
+procedure TfrmDXCluster.SaveColWidths;
+begin
+  if not Assigned(cqrini) then exit;
+  cqrini.WriteInteger('DXCluster','ColW_Time',    grdSpots.ColWidths[GC_TIME]);
+  cqrini.WriteInteger('DXCluster','ColW_Spotter', grdSpots.ColWidths[GC_SPOTTER]);
+  cqrini.WriteInteger('DXCluster','ColW_Freq',    grdSpots.ColWidths[GC_FREQ]);
+  cqrini.WriteInteger('DXCluster','ColW_Call',    grdSpots.ColWidths[GC_CALL]);
+  cqrini.WriteInteger('DXCluster','ColW_Band',    grdSpots.ColWidths[GC_BAND]);
+  cqrini.WriteInteger('DXCluster','ColW_Mode',    grdSpots.ColWidths[GC_MODE]);
+  cqrini.WriteInteger('DXCluster','ColW_Country', grdSpots.ColWidths[GC_COUNTRY]);
+  cqrini.WriteInteger('DXCluster','ColW_Comment', grdSpots.ColWidths[GC_COMMENT]);
+end;
+
+procedure TfrmDXCluster.LoadColWidths;
+begin
+  if not Assigned(cqrini) then exit;
+  grdSpots.ColWidths[GC_TIME]    := cqrini.ReadInteger('DXCluster','ColW_Time',    48);
+  grdSpots.ColWidths[GC_SPOTTER] := cqrini.ReadInteger('DXCluster','ColW_Spotter', 72);
+  grdSpots.ColWidths[GC_FREQ]    := cqrini.ReadInteger('DXCluster','ColW_Freq',    68);
+  grdSpots.ColWidths[GC_CALL]    := cqrini.ReadInteger('DXCluster','ColW_Call',    72);
+  grdSpots.ColWidths[GC_BAND]    := cqrini.ReadInteger('DXCluster','ColW_Band',    42);
+  grdSpots.ColWidths[GC_MODE]    := cqrini.ReadInteger('DXCluster','ColW_Mode',    46);
+  grdSpots.ColWidths[GC_COUNTRY] := cqrini.ReadInteger('DXCluster','ColW_Country', 100);
+  grdSpots.ColWidths[GC_COMMENT] := cqrini.ReadInteger('DXCluster','ColW_Comment', 200);
+end;
+
+procedure TfrmDXCluster.grdSpotsMouseDown(Sender: TObject;
+  Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  Col, Row  : Integer;
+  RightEdge : Integer;
+  c         : Integer;
+const
+  GRIP = 4;
+begin
+  if Button <> mbLeft then Exit;
+  grdSpots.MouseToCell(X, Y, Col, Row);
+  if Row <> 0 then Exit;
+  RightEdge := 0;
+  for c := 0 to grdSpots.ColCount - 1 do
+  begin
+    RightEdge := RightEdge + grdSpots.ColWidths[c] + 1;
+    if Abs(X - RightEdge) <= GRIP then
+    begin
+      if (c = GC_ST_CTY) or (c = GC_ST_BAND) or (c = GC_ST_MODE) or (c = GC_ADIF) then
+        Exit;
+      FResizeCol := c;
+      FResizeX   := X;
+      FResizeW   := grdSpots.ColWidths[c];
+      grdSpots.Cursor := crHSplit;
+
+      Exit;
+    end;
+  end;
+end;
+
+procedure TfrmDXCluster.grdSpotsMouseMove(Sender: TObject;
+  Shift: TShiftState; X, Y: Integer);
+var
+  Col, Row  : Integer;
+  RightEdge : Integer;
+  c         : Integer;
+  NewW      : Integer;
+const
+  GRIP = 4;
+  MINW = 20;
+begin
+  if FResizeCol >= 0 then
+  begin
+    NewW := FResizeW + (X - FResizeX);
+    if NewW < MINW then NewW := MINW;
+    grdSpots.ColWidths[FResizeCol] := NewW;
+    Exit;
+  end;
+  grdSpots.MouseToCell(X, Y, Col, Row);
+  if Row <> 0 then
+  begin
+    grdSpots.Cursor := crDefault;
+    Exit;
+  end;
+  RightEdge := 0;
+  for c := 0 to grdSpots.ColCount - 1 do
+  begin
+    RightEdge := RightEdge + grdSpots.ColWidths[c] + 1;
+    if Abs(X - RightEdge) <= GRIP then
+    begin
+      if (c = GC_ST_CTY) or (c = GC_ST_BAND) or (c = GC_ST_MODE) or (c = GC_ADIF) then
+        Break;
+      grdSpots.Cursor := crHSplit;
+      Exit;
+    end;
+  end;
+  grdSpots.Cursor := crDefault;
+end;
+
+procedure TfrmDXCluster.grdSpotsMouseUp(Sender: TObject;
+  Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+begin
+  if FResizeCol >= 0 then
+  begin
+
+    FResizeCol      := -1;
+    grdSpots.Cursor := crDefault;
+  end;
 end;
 
 procedure TfrmDXCluster.grdSpotsDblClick(Sender: TObject);
