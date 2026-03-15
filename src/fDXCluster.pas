@@ -1707,11 +1707,11 @@ begin
   begin
     while (i > 0) and (ThSpot[i] = ' ') do Dec(i);
     { mark end of word }
-    freq := Trim(copy(ThSpot, i - 4, 5));
-    if (Length(freq) = 5) and (UpCase(freq[5]) = 'Z')
-       and (freq[1] >= '0') and (freq[1] <= '2') then
+    spottime := Trim(copy(ThSpot, i - 4, 5));
+    if (Length(spottime) = 5) and (UpCase(spottime[5]) = 'Z')
+       and (spottime[1] >= '0') and (spottime[1] <= '2') then
     begin
-      spottime := freq;
+      { spottime already set correctly above }
       Break;
     end;
     while (i > 0) and (ThSpot[i] <> ' ') do Dec(i);
