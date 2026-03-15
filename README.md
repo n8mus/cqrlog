@@ -1,69 +1,84 @@
-What is CQRLOG-XD?
-------------------
+# CQRLOG — N8EM Fork (Alpha 140 + QRZ Logbook Upload)
 
-An update to CQRLOG that adds support for QRZ.com QSO upload created by 
-[phl0 / DF2ET](https://github.com/phl0/cqrlog)
+This is a fork of [CQRLOG](https://www.cqrlog.com/) Alpha 140, based on the
+[cqrlog-xd](https://github.com/d3cker/cqrlog-xd) development branch, with the
+following additions:
 
-Additionally this XD version has some bugfixes applied:
-- Upload and Delete from QRZ.com
-- QRZ.com visibility in config dialog
-- Clublog URL
+## What's New
 
-What is CQRLOG?
----------------
+### QRZ.com Logbook Auto-Upload
+Real-time QSO upload to your QRZ.com logbook on every new QSO entry.
 
-CQRLOG is an advanced ham radio logger based on MySQL database. Provides radio control 
-based on hamlib libraries (currently support of 140+ radio types and models), DX cluster 
-connection, online callbook, a grayliner, internal QSL manager database support and a most 
-accurate country resolution algorithm based on country tables developed by OK1RR. CQRLOG is 
-intended for daily general logging of HF, CW & SSB contacts and strongly focused on easy 
-operation and maintenance. More at https://www.cqrlog.com/
+- Supports INSERT and DELETE operations
+- Stores your QRZ API key and callsign in CQRLOG preferences
+- Upload status shown in the log upload status window with color coding
+- Duplicate QSO handling — gracefully skips already-uploaded QSOs
+- Uses the QRZ logbook REST API: https://logbook.qrz.com/api
 
-![Image of CQRLOG](https://cqrlog.com/images/users/ok2cqr.png)
+### LoTW Auto-Upload via tqsl
+Automatic Logbook of the World upload triggered after each QSO session.
 
-How to contribute?
--------------------
+- Calls tqsl automatically to sign and upload pending QSOs
+- Marks uploaded QSOs in the database to avoid re-uploading
+- Configurable station location via CQRLOG preferences
 
-You have to have Lazarus 2.0.6, fpc 3.0.4 compiler, MySQL server and clinet installed.
-CQRLOG is developed on Ubuntu 20.04, Lazarus and FreePascal are available in my pesronal repo  https://launchpad.net/~ok2cqr/+archive/lazarus
+## Requirements
 
-Compile with make and install with make DESTDIR=/home/yourusername/where_you_want_to_have_it install. If you are 
-going to change the source code, fork the repo, do the changes, commit them and use Pull request.
+- Linux (tested on Linux Mint 22.1 / Ubuntu-based)
+- Free Pascal Compiler 3.2.2+
+- Lazarus IDE with lazbuild
+- PostgreSQL (standard CQRLOG requirement)
+- A QRZ.com account with logbook enabled
+- Your QRZ API key (found at qrz.com → Logbook → Settings)
+- tqsl installed at /usr/bin/tqsl (for LoTW upload only)
 
-Dependencies
--------------
+## Building from Source
 
-Build-Depends: lazarus, lcl, fp-utils, fp-units-misc, fp-units-gfx, fp-units-gtk2, fp-units-db, fp-units-math, fp-units-net
+    git clone https://github.com/n8mus/cqrlog.git
+    cd cqrlog/src
+    lazbuild cqrlog.lpi
+    sudo cp cqrlog /usr/bin/cqrlog
 
-Depends: libssl-dev, mysql-server | mariadb-server, mysql-client | mariadb-client, libhamlib2 (>= 1.2.10), libhamlib-utils (>= 1.2.10)
+## Configuration
 
-Running build with Docker
--------------------------
+### QRZ Logbook Upload
+1. Open CQRLOG → File → Preferences → Online Log
+2. Find the QRZ.com section
+3. Enter your callsign and QRZ API key
+4. Check Enable QRZ upload
+5. Optionally check Upload online for real-time upload on each QSO
+6. Click OK
 
-If you do not want to install the dependencies into your main machine, you can do the build
-in a Docker container.  You need to mount into that Docker container this directory and
-also the target directory where you want to put the alpha version of `cqrlog` you are
-building.
+Your QRZ API key can be found by logging into qrz.com and navigating to
+Logbook → Settings → API Key.
 
-This also helps if you want to build, e.g., on a Debian Stretch machine.  Attempts at
-native builds on that platform have failed.  Using a reasonably recent Ubuntu inside our
-Docker-based build environment, makes the build work even on Debian Stretch.
+### LoTW Upload
+1. Open CQRLOG → File → Preferences → LoTW/eQSL
+2. Enable LoTW upload and set your station location
+3. Ensure tqsl is installed and your certificate is configured
 
-That bad news is, you have to [install Docker](https://docs.docker.com/install/linux/docker-ce/ubuntu/) (CE is fine).
+## Status
 
-That done, you can prepare an Ubuntu Docker image with the build tools as follows:
+| Feature | Status |
+|---|---|
+| HamQTH real-time upload | Working |
+| HRDLog real-time upload | Working |
+| QRZ.com logbook upload | Added in this fork |
+| LoTW upload via tqsl | Added in this fork |
+| QRZ callbook lookup | Working |
+| Club Log upload | Requires App Password setup |
 
-    (cd docker-build && docker build -t this.registry.is.invalid/cqrlog-build .)
+## Base Project
 
-(In case you wonder: There is no need to use a Docker registry, so we provide a registry
-host that is guaranteed to not exist.)
+- [CQRLOG](https://www.cqrlog.com/) by OK2CQR
+- [cqrlog-xd](https://github.com/d3cker/cqrlog-xd) Alpha 140 branch by d3cker
 
-Then, run the build itself with
+All original license terms apply. See COPYING for details.
 
-    sudo mkdir -p /usr/local/cqrlog-alpha &&
-    docker run -ti -u root -v $(pwd):/home/cqrlog/build \
-      -v /usr/local/cqrlog-alpha:/usr/local/cqrlog-alpha this.registry.is.invalid/cqrlog-build
+## Tested On
 
-To use your build, make sure that you have no instance of `cqrlog` running, backup
-`$HOME/.config/cqrlog` (if you ever used `cqrlog` before), add
-`/usr/local/cqrlog-alpha/usr/bin` to your `$PATH` and start `cqrlog` from there.
+- Linux Mint 22.1 (x86_64)
+- CQRLOG Alpha 140, Build 1, Date 2026-01-27
+- Free Pascal Compiler 3.2.2
+
+73 de N8EM
