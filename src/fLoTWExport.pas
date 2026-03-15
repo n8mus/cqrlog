@@ -112,6 +112,12 @@ begin
   mStat.Lines.Add('');
   Bound := IntToHex(Random(MaxInt), 8) + '_Synapse_boundary';
   FileName := ChangeFileExt(Filename,'.tq8');
+  if not FileExists(FileName) then
+  begin
+    mStat.Lines.Add('Signed .tq8 file not found - tqsl uploaded directly, no manual upload needed.');
+    btnUpload.Enabled := True;
+    exit;
+  end;
   mStat.Lines.Add('Uploading file ...');
   mStat.Lines.Add('Size: ');
   http := THTTPSend.Create;
@@ -229,9 +235,13 @@ begin
 
     if Aprocess.ExitCode = 0 then begin
       mStat.Lines.Add('Signed ...');
-      mStat.Lines.Add('If you did not see any errors, you can send signed file to LoTW website by' +
-                      ' pressing Upload button');
-      btnUpload.Enabled := True;
+      if FileExists(ChangeFileExt(FileName, '.tq8')) then begin
+        mStat.Lines.Add('If you did not see any errors, you can send signed file to LoTW website by' +
+                        ' pressing Upload button');
+        btnUpload.Enabled := True;
+      end else begin
+        mStat.Lines.Add('File was uploaded directly by tqsl (no manual upload needed).');
+      end;
     end;
     grbWebExport.Enabled := True;
     grbTqsl.Enabled      := True;
