@@ -123,8 +123,8 @@ type
     gcfgUseDXCColors : Boolean;
     gcfgClusterColor : TColor;
     gcfgNotShow : String;
-    gcfgCW : Boolean;
-    gcfgSSB : Boolean;
+    gcfgCW   : Boolean;
+    gcfgSSB  : Boolean;
     gcfgEU  : Boolean;
     gcfgAS  : Boolean;
     gcfgAF  : Boolean;
@@ -239,7 +239,8 @@ const
   GC_ST_BAND = 9;
   GC_ST_MODE = 10;
   GC_ADIF    = 11;
-  GC_TOTAL   = 12;
+  GC_COLOR   = 12;
+  GC_TOTAL   = 13;
   GC_ICON_W  = 36;
 { TfrmDXCluster }
 
@@ -497,6 +498,7 @@ begin
   grdSpots.ColWidths[GC_ST_BAND] := GC_ICON_W;
   grdSpots.ColWidths[GC_ST_MODE] := GC_ICON_W;
   grdSpots.ColWidths[GC_ADIF]    := 0;
+  grdSpots.ColWidths[GC_COLOR]   := 0;
   grdSpots.Cells[GC_TIME,    0]  := 'Time';
   grdSpots.Cells[GC_SPOTTER, 0]  := 'Spotter';
   grdSpots.Cells[GC_FREQ,    0]  := 'Freq';
@@ -509,6 +511,7 @@ begin
   grdSpots.Cells[GC_ST_BAND, 0]  := 'Bnd';
   grdSpots.Cells[GC_ST_MODE, 0]  := 'Mod';
   grdSpots.Cells[GC_ADIF,    0]  := '';
+  grdSpots.Cells[GC_COLOR,   0]  := '';
 
   ChBckColor  := clWindow;
   pnlChat.Color := ChBckColor;
@@ -1124,8 +1127,8 @@ var
   cfgClusterColor : TColor;
   cfgNotShow : String;
 
-  cfgCW : Boolean;
-  cfgSSB : Boolean;
+  cfgCW   : Boolean;
+  cfgSSB  : Boolean;
   cfgEU  : Boolean;
   cfgAS  : Boolean;
   cfgAF  : Boolean;
@@ -1149,7 +1152,7 @@ begin
     wITU   := gwITU;
     iITU   := giITU;
     cfgCW  := gcfgCW;
-    cfgSSB := gcfgSSB;
+    cfgSSB  := gcfgSSB;
     cfgEU  := gcfgEU;
     cfgAS  := gcfgAS;
     cfgNA  := gcfgNA;
@@ -1278,7 +1281,6 @@ begin
     if (mode='SSB') then
       Result := false
   end;
-
   if (result = False) then
     exit;
 
@@ -1725,7 +1727,8 @@ begin
     ThBand, ThMode,
     dmDXCluster.CountryFromADIF(ThAdif),
     comment, '', '', '',
-    IntToStr(ThAdif)]);
+    IntToStr(ThAdif),
+    IntToStr(ThColor)]);
 
   if grdSpots.RowCount > 501 then
     grdSpots.DeleteRow(grdSpots.RowCount - 1);
@@ -1761,7 +1764,7 @@ begin
     gwITU   := cqrini.ReadString('BandMap','wITU','*');
     giITU   := cqrini.ReadString('BandMap','iITU','');
     gcfgCW  := cqrini.ReadBool('DXCluster','CW',true);
-    gcfgSSB := cqrini.ReadBool('DXCluster','SSB',True);
+    gcfgSSB  := cqrini.ReadBool('DXCluster','SSB',True);
     gcfgEU  := cqrini.ReadBool('BandMap','wEU',True);
     gcfgAS  := cqrini.ReadBool('BandMap','wAS',True);
     gcfgNA  := cqrini.ReadBool('BandMap','wNA',True);
@@ -1838,7 +1841,7 @@ begin
     RightEdge := RightEdge + grdSpots.ColWidths[c] + 1;
     if Abs(X - RightEdge) <= GRIP then
     begin
-      if (c = GC_ST_CTY) or (c = GC_ST_BAND) or (c = GC_ST_MODE) or (c = GC_ADIF) then
+      if (c = GC_ST_CTY) or (c = GC_ST_BAND) or (c = GC_ST_MODE) or (c = GC_ADIF) or (c = GC_COLOR) then
         Exit;
       FResizeCol := c;
       FResizeX   := X;
@@ -1880,7 +1883,7 @@ begin
     RightEdge := RightEdge + grdSpots.ColWidths[c] + 1;
     if Abs(X - RightEdge) <= GRIP then
     begin
-      if (c = GC_ST_CTY) or (c = GC_ST_BAND) or (c = GC_ST_MODE) or (c = GC_ADIF) then
+      if (c = GC_ST_CTY) or (c = GC_ST_BAND) or (c = GC_ST_MODE) or (c = GC_ADIF) or (c = GC_COLOR) then
         Break;
       grdSpots.Cursor := crHSplit;
       Exit;
@@ -1983,8 +1986,8 @@ var
   cellText : String;
   ts       : TTextStyle;
 begin
-  { Only custom draw the three icon columns - let grid handle everything else }
-  if not (aCol in [GC_ST_CTY, GC_ST_BAND, GC_ST_MODE]) then Exit;
+  { Custom draw icon columns and call column for color coding }
+  if not (aCol in [GC_ST_CTY, GC_ST_BAND, GC_ST_MODE, GC_CALL]) then Exit;
   if aRow = 0 then Exit;
 
   { Background }
@@ -2001,6 +2004,19 @@ begin
     grdSpots.Canvas.Brush.Color := clWindow;
   grdSpots.Canvas.FillRect(aRect);
 
+  { Draw call column with spot color }
+  if aCol = GC_CALL then
+  begin
+    cellText := grdSpots.Cells[GC_CALL, aRow];
+    ts := grdSpots.Canvas.TextStyle;
+    ts.Alignment := taLeftJustify;
+    ts.Layout    := tlCenter;
+    ts.SingleLine := True;
+    ts.Clipping   := True;
+    grdSpots.Canvas.Font.Color := TColor(StrToIntDef(grdSpots.Cells[GC_COLOR, aRow], clWindowText));
+    grdSpots.Canvas.TextRect(aRect, aRect.Left + 2, aRect.Top, cellText, ts);
+    Exit;
+  end;
   adif := Word(StrToIntDef(grdSpots.Cells[GC_ADIF, aRow], 0));
   band := grdSpots.Cells[GC_BAND, aRow];
   mode := grdSpots.Cells[GC_MODE, aRow];
