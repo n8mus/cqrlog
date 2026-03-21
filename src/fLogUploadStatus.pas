@@ -186,6 +186,11 @@ begin
       begin
         AlreadyDel := False;
         Command := dmLogUpload.Q.FieldByName('cmd').AsString;
+        if (Command = C_ALLDONE) then
+        begin
+          Writeln('ALLDONE received - stopping upload');
+          Break
+        end;
         if (Command<>'INSERT') and (Command<>'UPDATE') and (Command<>'DELETE') then
         begin
           Writeln('Unknown command:',Command);
