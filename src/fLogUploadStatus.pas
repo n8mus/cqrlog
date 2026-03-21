@@ -280,7 +280,7 @@ begin
         if UpSuccess then
         begin
           Response := dmLogUpload.GetResultMessage(WhereToUpload,Response,ResultCode,ErrorCode);
-          if (WhereToUpload = upQrzLog) and cqrini.ReadBool('OnlineLog','QrzUP',False) and ((Command = 'INSERT') or (Command = 'UPDATE')) and (ErrorCode = 0) then
+          if (WhereToUpload = upQrzLog) and cqrini.ReadBool('OnlineLog','QrzUP',False) and ((Command = 'INSERT') or (Command = 'UPDATE') or (Command = 'DELETE')) and (ErrorCode = 0) then
           begin
             if (LeftStr(Response,2)='OK') then
             begin
