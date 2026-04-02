@@ -1,72 +1,71 @@
-# CqrlogAlpha is a clone based on the work of OK2CQR & OK1RR.
-## It has over 500 smaller or bigger differences to official Cqrlog.
-### I am maintaining this software mainly for my own use, but feel free to use/modify it for your own needs by the rules of Open software licence and HamSprit rules.
-----------------------------------------------------------------------------------------------------
+# CQRLOG — N8EM Fork (Alpha 141 + QRZ Logbook Upload)
 
-See file src/changelog.html for changes
+This is a fork of [CQRLOG](https://www.cqrlog.com/) Alpha 141, with full
+QRZ.com logbook upload support added.
 
-----------------------------------------------------------------------------------------------------
+## What's New
 
+### QRZ.com Logbook Auto-Upload
+- Real-time QSO upload to QRZ.com logbook on every new QSO entry
+- Auto-delete from QRZ when QSO is deleted in CQRLOG
+- LOGID tracking — saves QRZ LOGID to database for reliable deletes
+- QRZ.com entry in Online Log menu with Upload and Mark All options
+- QRZ.com section in Preferences Online Log tab
+- Status window closes automatically after successful upload
+- Uses QRZ logbook REST API: https://logbook.qrz.com/api
 
-----------------------------------------------------------------------------------------------------
+## Database Changes Required
+Two columns are added automatically on first run if using a fresh database.
+For existing databases, run these once while CQRLOG is running:
 
+    mysql -u cqrlog -S ~/.config/cqrlog/database/sock cqrlog001 -e "ALTER TABLE cqrlog_main ADD COLUMN qrz_logid varchar(20) DEFAULT '';"
+    mysql -u cqrlog -S ~/.config/cqrlog/database/sock cqrlog001 -e "ALTER TABLE log_changes ADD COLUMN qrz_logid varchar(20) NULL;"
+    mysql -u cqrlog -S ~/.config/cqrlog/database/sock cqrlog001 -e "INSERT INTO upload_status (logname, id_log_changes) VALUES ('qrz.com', 1);"
 
+Then recreate the delete trigger:
 
-What is CQRLOG?
----------------
+    mysql -u cqrlog -S ~/.config/cqrlog/database/sock cqrlog001 -e "DROP TRIGGER IF EXISTS cqrlog_main_bd;"
+    mysql -u cqrlog -S ~/.config/cqrlog/database/sock cqrlog001 -e "CREATE TRIGGER cqrlog_main_bd BEFORE DELETE ON cqrlog_main FOR EACH ROW insert into log_changes(id_cqrlog_main,cmd,old_qsodate,old_time_on,old_callsign,old_mode,old_band,old_freq,qrz_logid) values (OLD.id_cqrlog_main,'DELETE',OLD.qsodate,OLD.time_on,OLD.callsign,OLD.mode,OLD.band,OLD.freq,OLD.qrz_logid);"
 
-CQRLOG is an advanced ham radio logger based on MySQL database. Provides radio control 
-based on hamlib libraries (currently support all radio types and models Hamlib can support),
-DX cluster connection, online callbook, a grayliner, internal QSL manager database support,
-remore support for fldigi|wsjt-x|ADIF (n1mm) and a most 
-accurate country resolution algorithm based on country tables developed by OK1RR. CQRLOG is 
-intended for daily general logging of HF, CW , PHONE & DIGI contacts and strongly focused on easy 
-operation and maintenance. 
+## Building from Source
 
+    git clone https://github.com/n8mus/cqrlog.git
+    cd cqrlog/src
+    lazbuild cqrlog.lpi
+    sudo cp cqrlog /usr/bin/cqrlog
 
-How to contribute?
-------------------
+## Configuration
 
-You have to have Lazarus + fpc compiler, MySQL server and clinet installed.
-CQRLOG is developed on Ubuntu 20.04, Lazarus and FreePascal are available from https://www.lazarus-ide.org
+1. Open CQRLOG -> File -> Preferences -> Online Log
+2. Scroll to the QRZ.com Logbook section
+3. Enter your callsign and QRZ API key
+4. Check Enable QRZ.com logbook upload
+5. Check Upload QSO data immediately for real-time upload
+6. Check Close upload window after successful upload
+7. Click OK
 
-Compile with make|make cqrlog_qt5|make cqrlog_qt6 and install with make DESTDIR=/home/yourusername/where_you_want_to_have_it install.
-If you are going to change the source code, fork the repo, do the changes, commit them and use Pull request.
+Your QRZ API key is found at qrz.com -> Logbook -> Settings -> API Key.
 
-Dependencies
--------------
+## Requirements
 
-Build-Depends: lazarus, lcl, [qt5pas, qt6pas] fp-utils, fp-units-misc, fp-units-gfx, fp-units-gtk2, fp-units-db, fp-units-math, fp-units-net
+- Linux (tested on Arch Linux 6.19 and Linux Mint 22.1)
+- Free Pascal Compiler 3.2.2+
+- Lazarus IDE with lazbuild
+- MariaDB/MySQL (standard CQRLOG requirement)
+- A QRZ.com account with logbook enabled
 
-Depends: libssl-dev, mariadb-server,  mariadb-client, libhamlib2 (>= 1.2.10), libhamlib-utils (>= 1.2.10)
+## Base Project
 
-Running build with Docker
--------------------------
+- [CQRLOG](https://www.cqrlog.com/) by OK2CQR
+- [CqrlogAlpha](https://github.com/OK2CQR/CqrlogAlpha) Alpha 141
 
-If you do not want to install the dependencies into your main machine, you can do the build
-in a Docker container.  You need to mount into that Docker container this directory and
-also the target directory where you want to put the alpha version of `cqrlog` you are
-building.
+All original license terms apply. See COPYING for details.
 
-This also helps if you want to build, e.g., on a Debian Stretch machine.  Attempts at
-native builds on that platform have failed.  Using a reasonably recent Ubuntu inside our
-Docker-based build environment, makes the build work even on Debian Stretch.
+## Tested On
 
-That bad news is, you have to [install Docker](https://docs.docker.com/install/linux/docker-ce/ubuntu/) (CE is fine).
+- Arch Linux 6.19 (x86_64)
+- Linux Mint 22.1 (x86_64)
+- CQRLOG Alpha 141, Build 1, Date 2026-03-17
+- Free Pascal Compiler 3.2.2
 
-That done, you can prepare an Ubuntu Docker image with the build tools as follows:
-
-    (cd docker-build && docker build -t this.registry.is.invalid/cqrlog-build .)
-
-(In case you wonder: There is no need to use a Docker registry, so we provide a registry
-host that is guaranteed to not exist.)
-
-Then, run the build itself with
-
-    sudo mkdir -p /usr/local/cqrlog-alpha && sudo chown $SUDO_USER /usr/local/cqrlog-alpha &&
-    docker run -ti -u root -v $(pwd):/home/cqrlog/build \
-      -v /usr/local/cqrlog-alpha:/usr/local/cqrlog-alpha this.registry.is.invalid/cqrlog-build
-
-To use your build, make sure that you have no instance of `cqrlog` running, backup
-`$HOME/.config/cqrlog` (if you ever used `cqrlog` before), add
-`/usr/local/cqrlog-alpha/usr/bin` to your `$PATH` and start `cqrlog` from there.
+73 de N8EM
