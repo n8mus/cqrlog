@@ -88,6 +88,7 @@ type
     acUploadToClubLog: TAction;
     acUploadToHamQTH: TAction;
     acUploadToUDPLog: TAction;
+    acUploadToQrzLog: TAction;
     acTune : TAction;
     btnClearSatellite : TButton;
     cbOffline: TCheckBox;
@@ -416,6 +417,7 @@ type
     procedure acUploadToHamQTHExecute(Sender: TObject);
     procedure acUploadToHrdLogExecute(Sender: TObject);
     procedure acUploadToUDPLogExecute(Sender: TObject);
+    procedure acUploadToQrzLogExecute(Sender: TObject);
     procedure acPropExecute(Sender: TObject);
     procedure btnCancelExit(Sender: TObject);
     procedure btnClearSatelliteClick(Sender : TObject);
@@ -8288,6 +8290,10 @@ Begin
      else   Result := mode;
 end;
 
+
+procedure TfrmNewQSO.acUploadToQrzLogExecute(Sender: TObject);
+begin
+  frmLogUploadStatus.UploadDataToQrzLog
+end;
+
 end.
-
-
