@@ -2,7 +2,13 @@
 
 This is a fork of [CQRLOG](https://www.cqrlog.com/) Alpha 141, with full
 QRZ.com logbook upload support added.
-
+Please see Oh1kh git page for warnings and install information
+I am not a programer. Please back up everything!
+This was a test for my own personal use. I have successfully installed
+on 2 Arch based systems.
+I personally used Anthropic Claude to do the entire Arch installs as well as the
+coding changes in the Alpha 141 fork. It was trial and error but in the end
+it is working well here. I found Claude available for free in my latest Firefox update. 
 ## What's New
 
 ### QRZ.com Logbook Auto-Upload
