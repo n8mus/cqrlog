@@ -1,5 +1,13 @@
 # CQRLOG — N8EM Fork (Alpha 140 + QRZ Logbook Upload)
-
+Please do not use this version. It is under development and has known bugs
+On this fork I am working on changes to the dxcluster window to mimic the 
+Alert features similar to those found in other software. 
+I added columns in the dxcluster for country band and mode with colored checks or X's
+This makes for an easy visual as to if a new country or new band for a country or
+New mode for a country. It also scans the log and returns for worked but unconfirmed. 
+That is also for all 3 outputs country band and mode. 
+Known bug is ADIF imports are not working now. More work to be done. 
+Current cluster puts colors for the above I wanted a better visual. 
 This is a fork of [CQRLOG](https://www.cqrlog.com/) Alpha 140, based on the
 [cqrlog-xd](https://github.com/d3cker/cqrlog-xd) development branch, with the
 following additions:
