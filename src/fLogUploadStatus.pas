@@ -574,6 +574,8 @@ begin
 
   if (Pos('Done ...',SyncMsg)>0) or (Pos('All QSO already uploaded',SyncMsg)>0) then
   begin
+    if Pos('qrz.com',SyncMsg)>0 then
+      dmLogUpload.MarkAsUploadedToAllOnlineLogs;
     if cqrini.ReadBool('OnlineLog','CloseAfterUpload',False) then
       Close
   end
