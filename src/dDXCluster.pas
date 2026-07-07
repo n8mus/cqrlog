@@ -80,6 +80,7 @@ type
   public
     function  LetterFromMode(mode : String) : String;
     function  DXCCInfo(adif : Word;freq,mode : String; var index : integer) : String;
+    function  ParkWorkedInfo(reference,band,mode : String; var index : integer) : String;
     function  BandModFromFreq(freq : String;var mode,band : String) : Boolean;
     function  UseseQSL(call : String) : Boolean;
     function  id_country(znacka: string;datum : TDateTime; var pfx, cont, country, WAZ,
@@ -400,6 +401,77 @@ begin
               index  := 1
             end
           end
+        end
+      end
+    except
+      on E : Exception do
+        Writeln(E.Message)
+    end
+    finally
+      Q.Close;
+      trQ.Rollback
+    end
+  finally
+    LeaveCriticalsection(csDX)
+  end
+end;
+
+function TdmDXCluster.ParkWorkedInfo(reference,band,mode : String; var index : integer) : String;
+var
+  Smode : String;
+begin
+  EnterCriticalsection(csDX);
+  try
+    // index : 0 - New park (never worked/hunted before)
+    // index : 1 - Park worked before, but not on this band/mode
+    // index : 2 - Already worked this park on this band and mode
+    index := 0;
+    if reference = '' then
+    begin
+      Result := 'No park reference';
+      exit
+    end;
+
+    Smode := ' AND mode='+QuotedStr(mode);
+
+    if ((mode='FT8') or (mode='FT4')) then
+       Smode := ' AND mode LIKE'+QuotedStr('FT%');
+
+    if ((mode='FST4') or (mode='FST4W')) then
+       Smode := ' AND mode LIKE'+QuotedStr('FST%');
+
+    if ((mode='JT4') or (mode='JT9') or (mode='JT65')) then
+       Smode := ' AND mode LIKE'+QuotedStr('JT%');
+
+    if trQ.Active then
+      trQ.Rollback;
+
+    try try
+      Q.SQL.Text := 'SELECT id_cqrlog_main FROM '+dmData.DBName+'.cqrlog_main WHERE pota_hunted_ref='+QuotedStr(reference)+
+                    ' AND band='+QuotedStr(band)+
+                    Smode+
+                    ' LIMIT 1';
+
+      trQ.StartTransaction;
+      Q.Open;
+      if Q.Fields[0].AsInteger > 0 then
+      begin
+        Result := 'Already worked this park on this band/mode';
+        index  := 2
+      end
+      else begin
+        Q.Close;
+        Q.SQL.Text := 'SELECT id_cqrlog_main FROM '+dmData.DBName+'.cqrlog_main WHERE pota_hunted_ref='+QuotedStr(reference)+
+                      ' LIMIT 1';
+        Q.Open;
+        if Q.Fields[0].AsInteger > 0 then
+        begin
+          Result := 'Park worked before - new band/mode';
+          index  := 1
+        end
+        else begin
+          Result := 'New park';
+          index  := 0
         end
       end
     except

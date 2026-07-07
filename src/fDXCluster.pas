@@ -203,11 +203,12 @@ type
     procedure lDisconnect(aSocket: TLSocket);
     procedure lReceive(aSocket: TLSocket);
     procedure ChangeCallAlertCaption;
-    procedure BuildColorLegend(AParent: TWinControl; var Shapes: TLegendShapes);
+    procedure BuildColorLegend(AParent: TWinControl; var Shapes: TLegendShapes; const Captions : array of String);
     procedure BuildPotaTab;
     procedure tmrPotaTimer(Sender: TObject);
 
     function  ShowSpot(spot : String; var sColor : Integer; var Country : String; FromTelnet : Boolean = True) : Boolean;
+    function  ShowPotaSpot(spot : String; reference, spotMode : String; var sColor : Integer) : Boolean;
     function  GetSplit(info : String) :String;
     procedure StoreLastCmd(LastCmd:string);
     function  GetHistCmd:string;
@@ -569,7 +570,8 @@ begin
   lTelnet.OnDisconnect := @lDisconnect;
   lTelnet.OnReceive    := @lReceive;
 
-  BuildColorLegend(pnlWeb, LegendShapesWeb);
+  BuildColorLegend(pnlWeb, LegendShapesWeb, ['Unknown', 'New country', 'New band',
+                                              'New mode', 'QSL needed', 'Confirmed']);
   WebSpots             := TColorMemo.Create(pnlWeb);
   WebSpots.parent      := pnlWeb;
   WebSpots.AutoScroll  := True;
@@ -578,7 +580,8 @@ begin
   WebSpots.setLanguage(1);
 
 
-  BuildColorLegend(pnlTelnet, LegendShapesTel);
+  BuildColorLegend(pnlTelnet, LegendShapesTel, ['Unknown', 'New country', 'New band',
+                                                 'New mode', 'QSL needed', 'Confirmed']);
   TelSpots             := TColorMemo.Create(pnlTelnet);
   TelSpots.parent      := pnlTelnet;
   TelSpots.AutoScroll  := True;
@@ -1571,6 +1574,84 @@ begin
   end
 end;
 
+function TfrmDXCluster.ShowPotaSpot(spot : String; reference, spotMode : String; var sColor : Integer) : Boolean;
+var
+  call     : String  = '';
+  freq     : String  = '';
+  info     : String  = '';
+  band     : String  = '';
+  mode     : String  = '';
+  freqMode : String  = '';
+  stmp     : String  = '';
+  tmp      : Integer = 0;
+  index    : Integer = 0;
+  kmitocet : Extended = 0.0;
+
+  cfgNewParkColor       : TColor;
+  cfgWorkedParkColor    : TColor;
+  cfgConfirmedParkColor : TColor;
+  cfgCW   : Boolean;
+  cfgSSB  : Boolean;
+  cfgDATA : Boolean;
+begin
+  sColor := clWindowText;
+  Result := False;
+  mode := UpperCase(Trim(spotMode));
+  if (reference = '') or (mode = '') then
+    exit;
+
+  EnterCriticalSection(csDXCPref);
+  try
+    // Pota tab reuses the same color pickers as the DX country legend, but the
+    // meaning is park-worked status, not DXCC country status - see ParkWorkedInfo.
+    cfgNewParkColor       := gcfgNewCountryColor;
+    cfgWorkedParkColor    := gcfgNewBandColor;
+    cfgConfirmedParkColor := gcfgConfirmedColor;
+    cfgCW   := gcfgCW;
+    cfgSSB  := gcfgSSB;
+    cfgDATA := gcfgDATA
+  finally
+    LeaveCriticalSection(csDXCPref)
+  end;
+
+  dmDXCluster.GetSplitSpot(spot,call,freq,info);
+  tmp := Pos(',',freq);
+  if tmp > 0 then
+    freq[tmp] := FormatSettings.DecimalSeparator;
+  if not TryStrToFloat(freq,kmitocet) then
+    exit;
+  // Only the band is trusted from the frequency table lookup - POTA activators
+  // often work CW inside a nominal phone sub-band and vice versa, so the mode
+  // guessed from frequency doesn't reliably match what was actually logged.
+  // The API's own "mode" field (spotMode, passed in) is authoritative.
+  if (not dmDXCluster.BandModFromFreq(freq,freqMode,band)) or (band='') then
+    exit;
+
+  if Pos('.',band) > 0 then
+    stmp := StringReplace(band,'.','',[rfReplaceAll, rfIgnoreCase])
+  else
+    stmp := band;
+  if not cqrini.ReadBool('DXCluster','Show'+stmp,True) then
+    exit;
+
+  if (not cfgCW) and (mode='CW') then
+    exit;
+  if (not cfgSSB) and (mode='SSB') then
+    exit;
+  if (not cfgDATA) and (mode=cqrini.ReadString('Band'+IntToStr(frmTRXControl.cmbRig.ItemIndex), 'Datamode', 'RTTY')) then
+    exit;
+
+  Result := True;
+  dmDXCluster.ParkWorkedInfo(reference,band,mode,index);
+  case index of
+    0: sColor := cfgNewParkColor;
+    1: sColor := cfgWorkedParkColor;
+    2: sColor := cfgConfirmedParkColor;
+  else
+    sColor := clWindowText;
+  end
+end;
+
 procedure TTelThread.Execute;
 var
   dx      : String;
@@ -1819,8 +1900,7 @@ var
   spot      : String;
   info      : String;
   sColor    : TColor;
-  Country   : String;
-  activator, freqKHz, reference, parkName, spotter, comments, spotTime, hhmm : String;
+  activator, freqKHz, reference, spotMode, parkName, spotter, comments, spotTime, hhmm : String;
 begin
   if dmData.DebugLevel>=1 then
     Writeln('In TPotaThread.Execute');
@@ -1854,6 +1934,7 @@ begin
         activator := Jobj.Get('activator','');
         freqKHz   := Jobj.Get('frequency','');
         reference := Jobj.Get('reference','');
+        spotMode  := Jobj.Get('mode','');
         parkName  := Jobj.Get('name','');
         spotter   := Jobj.Get('spotter','');
         comments  := Jobj.Get('comments','');
@@ -1871,7 +1952,7 @@ begin
                 hhmm+'Z';
         EnterCriticalsection(frmDXCluster.csTelnet);
         try
-          if frmDXCluster.ShowSpot(spot,sColor,Country) then
+          if frmDXCluster.ShowPotaSpot(spot,reference,spotMode,sColor) then
           begin
             ThSpot    := spot;
             ThColor   := sColor;
@@ -1978,10 +2059,7 @@ begin
   end
 end;
 
-procedure TfrmDXCluster.BuildColorLegend(AParent: TWinControl; var Shapes: TLegendShapes);
-const
-  Captions: array[0..5] of String = ('Unknown', 'New country', 'New band',
-                                      'New mode', 'QSL needed', 'Confirmed');
+procedure TfrmDXCluster.BuildColorLegend(AParent: TWinControl; var Shapes: TLegendShapes; const Captions : array of String);
 var
   pnl: TPanel;
   lbl: TLabel;
@@ -1996,7 +2074,7 @@ begin
   pnl.Caption := '';
 
   x := 4;
-  for i := 0 to 5 do
+  for i := 0 to High(Captions) do
   begin
     Shapes[i] := TShape.Create(pnl);
     Shapes[i].Parent := pnl;
@@ -2023,7 +2101,7 @@ begin
   tab.PageControl := pgDXCluster;
   tab.Caption := 'POTA';
 
-  BuildColorLegend(tab, LegendShapesPota);
+  BuildColorLegend(tab, LegendShapesPota, ['New park', 'Worked - new band/mode', 'Worked this band/mode']);
 
   pnl := TPanel.Create(tab);
   pnl.Parent := tab;
@@ -2108,12 +2186,9 @@ begin
     end;
     if Assigned(LegendShapesPota[0]) then
     begin
-      LegendShapesPota[0].Brush.Color := gcfgUnknownColorDX;
-      LegendShapesPota[1].Brush.Color := gcfgNewCountryColor;
-      LegendShapesPota[2].Brush.Color := gcfgNewBandColor;
-      LegendShapesPota[3].Brush.Color := gcfgNewModeColor;
-      LegendShapesPota[4].Brush.Color := gcfgNeedQSLColor;
-      LegendShapesPota[5].Brush.Color := gcfgConfirmedColor;
+      LegendShapesPota[0].Brush.Color := gcfgNewCountryColor; // new park
+      LegendShapesPota[1].Brush.Color := gcfgNewBandColor;    // park worked, new band/mode
+      LegendShapesPota[2].Brush.Color := gcfgConfirmedColor;  // already worked this band/mode
     end;
   finally
     LeaveCriticalSection(csDXCPref)
