@@ -18,6 +18,8 @@
     <li>DXCluster:Fix: split "Confirmed" (LoTW/eQSL/card) from "Unknown" (lookup failed) worked-status colors, which previously shared the same color and couldn't be told apart</li>
     <li>DXCluster:Add: color legend strip and dedicated Confirmed/Unknown color pickers in Preferences, with a clearer red-orange-amber-blue-green-gray severity gradient</li>
     <li>Program:Change: update-check and changelog now point at this fork (github.com/n8mus/cqrlog) instead of upstream CqrlogAlpha</li>
+    </ul>
+    <li>(2) 2026-07-07</li><ul>
     <li>POTA:Fix: cluster tab colored spots by DXCC country worked-status instead of park-worked status; now colors by whether the park itself has been hunted before, and on this band/mode</li>
     <li>POTA:Fix: park worked-status could get stuck on "new band/mode" forever because the mode was guessed from the spot's frequency instead of using the mode POTA itself reports, which don't always agree (e.g. CW inside a nominal phone sub-band)</li>
     <li>ADIF import:Add: recognize the newer POTA_REF/MY_POTA_REF fields (as written by e.g. Ham Radio Deluxe) as a fallback when the legacy SIG_INFO/MY_SIG_INFO fields pota.app itself requires aren't present</li>
