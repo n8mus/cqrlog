@@ -34,12 +34,12 @@ implementation
 {$R *.lfm}
 
 { TfrmChangelog }
-uses dData, dUtils;
+uses dData, dUtils, uVersion;
 
 
 Procedure TfrmChangelog.ViewChangelog;
 Begin
-  Self.Caption:='CqrlogAlpha - Changelog';
+  Self.Caption:=uVersion.cForkName+' - Changelog';
   IpHtmlPanel1.OpenURL(expandLocalHtmlFileName(dmData.ShareDir+'changelog.html'));
 end;
 
@@ -106,10 +106,10 @@ procedure TfrmChangelog.ViewNewChangeLog;
 var
     data : String;
 Begin
-     if dmUtils.GetDataFromHttp('https://raw.githubusercontent.com/OH1KH/CqrlogAlpha/refs/heads/main/src/changelog.html', data) then
+     if dmUtils.GetDataFromHttp('https://raw.githubusercontent.com/n8mus/cqrlog/refs/heads/master/src/changelog.html', data) then
       begin
         if (pos('NOT FOUND',upcase(data))<>0) then exit;
-        Self.Caption:='CqrlogAlpha - New version changelog';
+        Self.Caption:=uVersion.cForkName+' - New version changelog';
         IpHtmlPanel1.SetHtmlFromStr(data);
       end;
 end;

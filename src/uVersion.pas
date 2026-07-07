@@ -5,7 +5,8 @@ interface
 
 const
 
-  cVersionBase     ='Alpha_(141)_';
+  cForkName        ='CQRLog Enhanced';
+  cVersionBase     ='Enhanced_(1)_';
 
   {$IFDEF LCLGtk2}
   cVERSION    = cVersionBase+'Gtk2';

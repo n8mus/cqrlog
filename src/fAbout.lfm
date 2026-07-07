@@ -4,7 +4,7 @@ object frmAbout: TfrmAbout
   Top = 58
   Width = 453
   BorderStyle = bsDialog
-  Caption = 'About CqrlogAlpha'
+  Caption = 'About CQRLog Enhanced'
   ClientHeight = 294
   ClientWidth = 453
   OnCreate = FormCreate
@@ -1992,7 +1992,7 @@ object frmAbout: TfrmAbout
         Height = 17
         Top = 145
         Width = 94
-        Caption = 'CqrlogAlpha'
+        Caption = 'CQRLog Enhanced'
         Font.Color = clRed
         Font.Style = [fsBold]
         ParentColor = False
@@ -2018,7 +2018,7 @@ object frmAbout: TfrmAbout
         Height = 17
         Top = 168
         Width = 319
-        Caption = 'https://github.com/OH1KH/CqrlogAlpha/tree/main'
+        Caption = 'https://github.com/n8mus/cqrlog/tree/master'
         Font.Color = clBlue
         Font.Style = [fsUnderline]
         ParentColor = False
@@ -2096,7 +2096,7 @@ object frmAbout: TfrmAbout
         Top = 188
         Width = 383
         BorderSpacing.Top = 3
-        Caption = 'https://github.com/OH1KH/CqrlogAlpha/tree/main/compiled'
+        Caption = 'https://github.com/n8mus/cqrlog/tree/master/compiled'
         Font.Color = clBlue
         Font.Style = [fsUnderline]
         ParentColor = False

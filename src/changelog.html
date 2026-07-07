@@ -11,6 +11,14 @@
     <strong>CQRLOG α (Alpha)</strong><br>
     What is new:
     <ul style="list-style: square;text-align:left; color: green;" >
+    <li>(1) 2026-07-06 - CQRLog Enhanced fork (built on Alpha 141)</li><ul>
+    <li>POTA:Add: full Parks on the Air logging support - "My Park"/"Park worked" fields on New QSO, ADIF import/export (SIG/SIG_INFO/MY_SIG/MY_SIG_INFO), park stats via Custom Statistics</li>
+    <li>POTA:Add: native "POTA" tab in the DX Cluster window showing live activator spots from api.pota.app, colored by worked status, with click-to-tune and automatic "Park worked" fill-in</li>
+    <li>Preferences:Add: separate "POTA-A"/"POTA-H" visible-column toggles for park-activated/park-hunted, shown in both the New QSO recent-contacts grid and the main log grid</li>
+    <li>DXCluster:Fix: split "Confirmed" (LoTW/eQSL/card) from "Unknown" (lookup failed) worked-status colors, which previously shared the same color and couldn't be told apart</li>
+    <li>DXCluster:Add: color legend strip and dedicated Confirmed/Unknown color pickers in Preferences, with a clearer red-orange-amber-blue-green-gray severity gradient</li>
+    <li>Program:Change: update-check and changelog now point at this fork (github.com/n8mus/cqrlog) instead of upstream CqrlogAlpha</li>
+    </ul>
     <li>(141) 2026-03-17</li><ul>
     <li>TRXControl:Memories:Fix: Mem Up/Dn button procedures</li>	
     <li>Mode list:Add: FT2 to modelist so that user has no need to add it to "user defined digital modes"</li>
