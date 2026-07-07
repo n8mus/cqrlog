@@ -85,6 +85,8 @@ type TnewQSOEntry=record   //represents a new qso entry in the log
       SAT_NAME : String[l_SAT_NAME];
       FREQ_RX  : String[l_FREQ_RX];
       OP:String[l_OP];
+      POTA_REF:String[l_MY_SIG_INFO];
+      POTA_HUNTED_REF:String[l_SIG_INFO];
      end;
 type
 
@@ -352,6 +354,9 @@ function TfrmAdifImport.fillTypeVariableWithTagData(h:longint;var data:string;va
     h_SAT_NAME                      :d.SAT_NAME:=TrimDataLen(adifTag,data,l_SAT_NAME);
     h_FREQ_RX                       :d.FREQ_RX:=TrimDataLen(adifTag,data,l_FREQ_RX);
     h_OP                            :d.OP:=UTF8UpperCase(TrimDataLen(adifTag,data,l_OP));
+    h_MY_SIG_INFO                   :d.POTA_REF:=UTF8UpperCase(TrimDataLen(adifTag,data,l_MY_SIG_INFO));
+    h_SIG_INFO                      :d.POTA_HUNTED_REF:=UTF8UpperCase(TrimDataLen(adifTag,data,l_SIG_INFO));
+    h_SIG, h_MY_SIG                 : ; //literal 'POTA' marker, no data of our own to store
 
     else begin
         { writeln('Unnamed...>',pom,'<');fillTypeVariableWithTagData:=false;exit;}
@@ -623,13 +628,13 @@ begin
                    'remarks,county,adif,idcall,award,band,state,cont,profile,lotw_qslsdate,lotw_qsls,'+
                    'lotw_qslrdate,lotw_qslr,qsls_date,qslr_date,eqsl_qslsdate,eqsl_qsl_sent,'+
                    'eqsl_qslrdate,eqsl_qsl_rcvd, prop_mode, satellite, rxfreq, stx, srx, stx_string,'+
-                   'srx_string, contestname, dok, operator) values('+
+                   'srx_string, contestname, dok, operator, pota_ref, pota_hunted_ref) values('+
                    ':qsodate,:time_on,:time_off,:callsign,:freq,:mode,:rst_s,:rst_r,:name,:qth,'+
                    ':qsl_s,:qsl_r,:qsl_via,:iota,:pwr,:itu,:waz,:loc,:my_loc,:remarks,:county,:adif,'+
                    ':idcall,:award,:band,:state,:cont,:profile,:lotw_qslsdate,:lotw_qsls,:lotw_qslrdate,'+
                    ':lotw_qslr,:qsls_date,:qslr_date,:eqsl_qslsdate,:eqsl_qsl_sent,:eqsl_qslrdate,'+
                    ':eqsl_qsl_rcvd, :prop_mode, :satellite, :rxfreq, :stx, :srx, :stx_string, :srx_string,'+
-                   ':contestname,:dok,:operator)';
+                   ':contestname,:dok,:operator,:pota_ref,:pota_hunted_ref)';
     if LocalDbg then Writeln(Q1.SQL.Text);
     Q1.Prepare;
     Q1.Params[0].AsString   := d.QSO_DATE;
@@ -758,6 +763,15 @@ begin
       Q1.Params[47].AsString := d.OP
     else
       Q1.Params[47].Clear;
+
+    if (d.POTA_REF <> '') then
+      Q1.Params[48].AsString := d.POTA_REF
+    else
+      Q1.Params[48].Clear;
+    if (d.POTA_HUNTED_REF <> '') then
+      Q1.Params[49].AsString := d.POTA_HUNTED_REF
+    else
+      Q1.Params[49].Clear;
 
     if LocalDbg then Writeln(Q1.SQL.Text);
     Q1.ExecSQL;

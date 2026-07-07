@@ -55,6 +55,10 @@ const h_PROP_MODE = 17551;
 const h_SAT_NAME = 39545;
 const h_FREQ_RX = 2926;
 const h_OP = 16130;
+const h_SIG = 5967;
+const h_SIG_INFO = 7265;
+const h_MY_SIG = 58723;
+const h_MY_SIG_INFO = 42312;
 
 //max length                               database lenght
 const l_BAND = 6;//10;                     // band             varchar(6)        FIXED if longer than database
@@ -115,6 +119,8 @@ const l_PROP_MODE = 30;               // prop_mode        varchar(30)
 const l_SAT_NAME = 30;                // satellite        varchar(30)
 const l_FREQ_RX = 30;                 // rxfreq           decimal(10,4)
 const l_OP = 20;//30;                      // operator         varchar(20)
+const l_SIG_INFO = 15;                // pota_hunted_ref  varchar(15)
+const l_MY_SIG_INFO = 60;             // pota_ref         varchar(60)
 
                                       // adif             int(11)
                                       // profile          int(11)

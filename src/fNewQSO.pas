@@ -617,6 +617,8 @@ type
     procedure tmrUploadAllTimer(Sender: TObject);
     procedure tmrWsjtxTimer(Sender: TObject);
   private
+    edtPotaRef       : TEdit;
+    edtPotaHuntedRef : TEdit;
     StartUpCount : integer;
     StartRun    : Boolean;
     old_stat_adif : Word;
@@ -706,6 +708,7 @@ type
     function RigCmd2DataMode(mode:String):String;
     procedure StartUpRemote;
     procedure NewLogSplash;
+    procedure BuildPOTATab;
 
   public
     fEditQSO    : Boolean;
@@ -762,6 +765,7 @@ type
     procedure ClearGrayLineMapLine;
     procedure SavePosition;
     procedure NewQSOFromSpot(call,freq,mode : String;FromRbn : Boolean = False);
+    procedure SetHuntedPark(ParkRef : String);
     procedure SetEditLabel;
     procedure UnsetEditLabel;
     procedure SetSplit(s : String);
@@ -1322,6 +1326,7 @@ begin
   lblTarSunSet.Caption  := '';
   mCountry.Clear;
   mComment.Clear;
+  edtPotaHuntedRef.Text := ''; //park-to-park is per-QSO; My Park (edtPotaRef) stays filled for the activation
   QTHfromCb := False;
   lblAmbiguous.Visible := False;
   old_call := '';
@@ -3220,8 +3225,43 @@ end;
   to construct a recipe to replicate an issue.
    }
 
+procedure TfrmNewQSO.BuildPOTATab;
+var
+  tab : TTabSheet;
+  lbl : TLabel;
+begin
+  tab := TTabSheet.Create(pgDetails);
+  tab.PageControl := pgDetails;
+  tab.Caption := 'POTA';
+
+  lbl := TLabel.Create(tab);
+  lbl.Parent := tab;
+  lbl.Caption := 'My Park (only if YOU are activating, e.g. US-1234):';
+  lbl.SetBounds(8, 12, 280, 17);
+
+  edtPotaRef := TEdit.Create(tab);
+  edtPotaRef.Parent := tab;
+  edtPotaRef.SetBounds(8, 32, 120, 23);
+  edtPotaRef.CharCase := ecUpperCase;
+  edtPotaRef.Hint := 'Leave blank if you are just hunting. Park you are activating from - stays filled in for the rest of the activation.';
+  edtPotaRef.ShowHint := True;
+
+  lbl := TLabel.Create(tab);
+  lbl.Parent := tab;
+  lbl.Caption := 'Park worked (their ref - fill this in as a hunter too):';
+  lbl.SetBounds(8, 64, 300, 17);
+
+  edtPotaHuntedRef := TEdit.Create(tab);
+  edtPotaHuntedRef.Parent := tab;
+  edtPotaHuntedRef.SetBounds(8, 84, 120, 23);
+  edtPotaHuntedRef.CharCase := ecUpperCase;
+  edtPotaHuntedRef.Hint := 'The park the OTHER station is activating - fill this in whether you are hunting or park-to-park.';
+  edtPotaHuntedRef.ShowHint := True;
+end;
+
 procedure TfrmNewQSO.FormCreate(Sender: TObject);
 begin
+  BuildPOTATab;
   StartRun := false;
   CWint := nil;
   tmrRadio.Enabled := False;
@@ -3391,7 +3431,9 @@ begin
                    edtContestExchangeMessageReceived.Text,
                    edtContestExchangeMessageSent.Text,
                    edtContestName.Text,
-                   Op);
+                   Op,
+                   edtPotaRef.Text,
+                   edtPotaHuntedRef.Text);
     if (old_call<>edtCall.Text) or (old_mode<>cmbMode.Text) or (StrToFloat(old_freq)<>StrToFloat(cmbFreq.Text)) or
        (old_date<>StrToDate(edtDate.Text)) or (old_time<>edtStartTime.Text) or (old_rsts<>edtHisRST.Text) or
        (old_rstr<>edtMyRST.Text) then
@@ -3483,7 +3525,9 @@ begin
                    edtContestExchangeMessageReceived.Text,
                    edtContestExchangeMessageSent.Text,
                    edtContestName.Text,
-                   Op
+                   Op,
+                   edtPotaRef.Text,
+                   edtPotaHuntedRef.Text
                    )
    end;
   if (cmbPropagation.Text = 'SAT|Satellite') then
@@ -6623,6 +6667,19 @@ begin
         dbgrdQSOBefore.Columns[i].Title.Alignment := taCenter
       end;
 
+      if (UpperCase(dbgrdQSOBefore.Columns[i].DisplayName) = 'POTA_REF') then
+      begin
+        dbgrdQSOBefore.Columns[i].Title.Caption := 'POTA-A';
+        dbgrdQSOBefore.Columns[i].Alignment := taCenter;
+        dbgrdQSOBefore.Columns[i].Title.Alignment := taCenter
+      end;
+      if (UpperCase(dbgrdQSOBefore.Columns[i].DisplayName) = 'POTA_HUNTED_REF') then
+      begin
+        dbgrdQSOBefore.Columns[i].Title.Caption := 'POTA-H';
+        dbgrdQSOBefore.Columns[i].Alignment := taCenter;
+        dbgrdQSOBefore.Columns[i].Title.Alignment := taCenter
+      end;
+
       for y:=0 to Length(aColumns)-1 do
       begin
         if UpperCase(dbgrdQSOBefore.Columns[i].DisplayName) = aColumns[y].FieldName then
@@ -6642,7 +6699,11 @@ begin
         dbgrdQSOBefore.Columns.Add;
         dbgrdQSOBefore.Columns[dbgrdQSOBefore.Columns.Count-1].FieldName   := aColumns[i].FieldName;
         dbgrdQSOBefore.Columns[dbgrdQSOBefore.Columns.Count-1].DisplayName := aColumns[i].FieldName;
-        dbgrdQSOBefore.Columns[dbgrdQSOBefore.Columns.Count-1].Width       := 60
+        dbgrdQSOBefore.Columns[dbgrdQSOBefore.Columns.Count-1].Width       := 60;
+        if aColumns[i].FieldName = 'POTA_REF' then
+          dbgrdQSOBefore.Columns[dbgrdQSOBefore.Columns.Count-1].Title.Caption := 'POTA-A';
+        if aColumns[i].FieldName = 'POTA_HUNTED_REF' then
+          dbgrdQSOBefore.Columns[dbgrdQSOBefore.Columns.Count-1].Title.Caption := 'POTA-H';
       end
     end;
 
@@ -6844,6 +6905,8 @@ begin
     edtAward.Text     := Trim(dmData.qQSOBefore.FieldByName('award').AsString);
     edtState.Text     := Trim(dmData.qQSOBefore.FieldByName('state').AsString);
     edtDOK.Text       := Trim(dmData.qQSOBefore.FieldByName('dok').AsString);
+    edtPotaRef.Text       := Trim(dmData.qQSOBefore.FieldByName('pota_ref').AsString);
+    edtPotaHuntedRef.Text := Trim(dmData.qQSOBefore.FieldByName('pota_hunted_ref').AsString);
     lotw_qslr         := dmData.qQSOBefore.FieldByName('lotw_qslr').AsString;
 
     if lotw_qslr = 'L' then
@@ -6900,6 +6963,8 @@ begin
     edtAward.Text     := dmData.qCQRLOG.FieldByName('award').AsString;
     edtState.Text     := dmData.qCQRLOG.FieldByName('state').AsString;
     edtDOK.Text       := dmData.qCQRLOG.FieldByName('dok').AsString;
+    edtPotaRef.Text       := dmData.qCQRLOG.FieldByName('pota_ref').AsString;
+    edtPotaHuntedRef.Text := dmData.qCQRLOG.FieldByName('pota_hunted_ref').AsString;
     lotw_qslr         := dmData.qCQRLOG.FieldByName('lotw_qslr').AsString;
     edtContestName.Text := dmData.qCQRLOG.FieldByName('contestname').AsString;
     edtContestSerialSent.Text := dmData.qCQRLOG.FieldByName('stx').AsString;
@@ -7185,6 +7250,11 @@ begin
      frmContest.edtCallExit(nil);
      end
   end
+end;
+
+procedure TfrmNewQSO.SetHuntedPark(ParkRef : String);
+begin
+  edtPotaHuntedRef.Text := ParkRef;
 end;
 
 procedure TfrmNewQSO.SetEditLabel;
@@ -8217,7 +8287,7 @@ Begin
   if not cqrini.ReadBool('Program', 'CheckAlpha', True) then exit;
   if not (TryStrToInt(ExtractWord(2,cVersionBase,['(',')']),VerNr)) then exit;
   VerAvailNr:=0;
-   if dmUtils.GetDataFromHttp('https://raw.githubusercontent.com/OH1KH/CqrlogAlpha/refs/heads/main/compiled/version.txt', data) then
+   if dmUtils.GetDataFromHttp('https://raw.githubusercontent.com/n8mus/cqrlog/refs/heads/master/compiled/version.txt', data) then
   begin
     if (pos('NOT FOUND',upcase(data))<>0) then exit;
     if not (TryStrToInt(ExtractWord(2,data,['(',')']),VerAvailNr)) then exit;
@@ -8227,7 +8297,7 @@ Begin
         frmAbout:= TfrmAbout.Create(Application);
         frmAbout.PageControl1.ActivePage := frmAbout.tabUpgrade;
         frmAbout.lblVerze1.Caption := cVERSION + '  ' + cBUILD_DATE;
-        frmAbout.Label8.Caption:='There is CqrlogAlpha version '+IntToStr(VerAvailNr)+' available!';
+        frmAbout.Label8.Caption:='There is '+cForkName+' version '+IntToStr(VerAvailNr)+' available!';
         frmAbout.IsNewVersion:=True;
         frmAbout.btnChangelog1.Font.Color:=clRed;
         frmAbout.btnChangelog1.Font.Style:=[fsBold];

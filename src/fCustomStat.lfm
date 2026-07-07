@@ -89,6 +89,7 @@ object frmCustomStat: TfrmCustomStat
         'state'
         'qth'
         'remarks'
+        'pota_ref'
       )
       TabOrder = 4
       Text = 'award'

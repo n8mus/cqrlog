@@ -5050,7 +5050,7 @@ end;
 
 function TdmUtils.LoadVisibleColumnsConfiguration : TColumnVisibleArray;
 const
-  COLUMN_COUNT = 47;
+  COLUMN_COUNT = 49;
 var
   i : Integer;
   aColumns : TColumnVisibleArray;
@@ -5197,6 +5197,12 @@ begin
 
   aColumns[46].FieldName := 'OPERATOR';
   aColumns[46].Visible   := cqrini.ReadBool('Columns', 'Operator', False);
+
+  aColumns[47].FieldName := 'POTA_REF';
+  aColumns[47].Visible   := cqrini.ReadBool('Columns', 'PotaA', False);
+
+  aColumns[48].FieldName := 'POTA_HUNTED_REF';
+  aColumns[48].Visible   := cqrini.ReadBool('Columns', 'PotaH', False);
 
   for i:=0 to Length(aColumns)-1 do
     aColumns[i].Exists := False;

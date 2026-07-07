@@ -110,6 +110,8 @@ type
     chkSimpleRig: TCheckBox;
     chkNewQsoUdp: TCheckBox;
     chkProfile: TCheckBox;
+    chkPotaA: TCheckBox;
+    chkPotaH: TCheckBox;
     chkHamForceSpace: TCheckBox;
     chkDeleteEqsl: TCheckBox;
     chkKeepAlive: TCheckBox;
@@ -444,6 +446,9 @@ type
     cmbProfiles: TComboBox;
     cmbNewCountry: TColorBox;
     cmbNewBand: TColorBox;
+    cmbConfirmed: TColorBox;
+    cmbUnknown: TColorBox;
+    chkNewQSOLoTWCluster: TCheckBox;
     clboxNewWaz: TColorBox;
     clBoxBandWAZ: TColorBox;
     clBoxQSLWAZ: TColorBox;
@@ -1312,6 +1317,8 @@ begin
   cqrini.WriteBool('Columns', 'Operator', chkOperator.Checked);
   cqrini.WriteBool('Columns', 'Distance', chkDistance.Checked);
   cqrini.WriteBool('Columns', 'Profile', chkProfile.Checked);
+  cqrini.WriteBool('Columns', 'PotaA', chkPotaA.Checked);
+  cqrini.WriteBool('Columns', 'PotaH', chkPotaH.Checked);
   cqrini.WriteBool('Columns', 'IOTA', chkIOTA.Checked);
   cqrini.WriteBool('Columns', 'Award', chkAward.Checked);
   cqrini.WriteBool('Columns', 'Power', chkPower.Checked);
@@ -1432,6 +1439,9 @@ begin
   cqrini.WriteInteger('DXCluster', 'NewBand', cmbNewBand.Selected);
   cqrini.WriteInteger('DXCluster', 'NewMode', cmbNewMode.Selected);
   cqrini.WriteInteger('DXCluster', 'NeedQSL', cmbQSLNeeded.Selected);
+  cqrini.WriteInteger('DXCluster', 'Confirmed', cmbConfirmed.Selected);
+  cqrini.WriteInteger('DXCluster', 'UnknownCty', cmbUnknown.Selected);
+  cqrini.WriteBool('LoTW', 'NewQSOLoTW', chkNewQSOLoTWCluster.Checked);
   cqrini.WriteBool('DXCluster', 'Show2190M', chkShow2190M.Checked);
   cqrini.WriteBool('DXCluster', 'Show630M', chkShow630M.Checked);
   cqrini.WriteBool('DXCluster', 'Show160M', chkShow160M.Checked);
@@ -3189,6 +3199,8 @@ begin
   chkOperator.Checked := cqrini.ReadBool('Columns', 'Operator', False);
   chkDistance.Checked := cqrini.ReadBool('Columns', 'Distance', False);
   chkProfile.Checked := cqrini.ReadBool('Columns', 'Profile', False);
+  chkPotaA.Checked := cqrini.ReadBool('Columns', 'PotaA', False);
+  chkPotaH.Checked := cqrini.ReadBool('Columns', 'PotaH', False);
   chkIOTA.Checked := cqrini.ReadBool('Columns', 'IOTA', False);
   chkAward.Checked := cqrini.ReadBool('Columns', 'Award', False);
   chkCounty.Checked := cqrini.ReadBool('Columns', 'County', False);
@@ -3358,10 +3370,15 @@ begin
   chkSSB.Checked := cqrini.ReadBool('DXCluster', 'SSB', True);
   chkDATA.Checked := cqrini.ReadBool('DXCluster', 'DATA', True);
   edtDoNotShow.Text := cqrini.ReadString('DXCluster', 'NotShow', '');
-  cmbNewCountry.Selected := cqrini.ReadInteger('DXCluster', 'NewCountry', 0);
-  cmbNewBand.Selected := cqrini.ReadInteger('DXCluster', 'NewBand', 0);
-  cmbNewMode.Selected := cqrini.ReadInteger('DXCluster', 'NewMode', 0);
-  cmbQSLNeeded.Selected := cqrini.ReadInteger('DXCluster', 'NeedQSL', 0);
+  // Defaults mirror the severity gradient in fDXCluster.pas: red (act now) -> orange ->
+  // amber -> blue (paperwork) -> green (done) -> gray (lookup failed)
+  cmbNewCountry.Selected := cqrini.ReadInteger('DXCluster', 'NewCountry', clRed);
+  cmbNewBand.Selected := cqrini.ReadInteger('DXCluster', 'NewBand', RGBToColor(255,140,0));
+  cmbNewMode.Selected := cqrini.ReadInteger('DXCluster', 'NewMode', RGBToColor(204,153,0));
+  cmbQSLNeeded.Selected := cqrini.ReadInteger('DXCluster', 'NeedQSL', clBlue);
+  cmbConfirmed.Selected := cqrini.ReadInteger('DXCluster', 'Confirmed', clGreen);
+  cmbUnknown.Selected := cqrini.ReadInteger('DXCluster', 'UnknownCty', clGray);
+  chkNewQSOLoTWCluster.Checked := cqrini.ReadBool('LoTW', 'NewQSOLoTW', False);
   chkConToDXC.Checked := cqrini.ReadBool('DXCluster', 'ConAfterRun', False);
   chkKeepAlive.Checked := cqrini.ReadBool('DXCluster', 'KeepAlive', False);
   spnKeepAlive.Value := cqrini.ReadInteger('DXCluster', 'KeepAliveTime', 30);

@@ -2513,6 +2513,21 @@ procedure TfrmMain.ShowFields;
         isAdded := True
       end;
 
+      if (UpperCase(dbgrdMain.Columns[i].DisplayName) = 'POTA_REF') then
+      begin
+        dbgrdMain.Columns[i].Title.Caption := 'POTA-A';
+        dbgrdMain.Columns[i].Width := 60;
+        dbgrdMain.Columns[i].Alignment := taCenter;
+        dbgrdMain.Columns[i].Title.Alignment := taCenter
+      end;
+      if (UpperCase(dbgrdMain.Columns[i].DisplayName) = 'POTA_HUNTED_REF') then
+      begin
+        dbgrdMain.Columns[i].Title.Caption := 'POTA-H';
+        dbgrdMain.Columns[i].Width := 60;
+        dbgrdMain.Columns[i].Alignment := taCenter;
+        dbgrdMain.Columns[i].Title.Alignment := taCenter
+      end;
+
       if (UpperCase(dbgrdMain.Columns[i].DisplayName) = 'TIME_ON') then
       begin
         dbgrdMain.Columns[i].Alignment := taCenter;
@@ -2614,7 +2629,11 @@ procedure TfrmMain.ShowFields;
       dbgrdMain.Columns.Add;
       dbgrdMain.Columns[dbgrdMain.Columns.Count-1].FieldName   := LowerCase(Column);
       dbgrdMain.Columns[dbgrdMain.Columns.Count-1].DisplayName := LowerCase(Column);
-      dbgrdMain.Columns[dbgrdMain.Columns.Count-1].Width       := 60
+      dbgrdMain.Columns[dbgrdMain.Columns.Count-1].Width       := 60;
+      if Column = 'POTA_REF' then
+        dbgrdMain.Columns[dbgrdMain.Columns.Count-1].Title.Caption := 'POTA-A';
+      if Column = 'POTA_HUNTED_REF' then
+        dbgrdMain.Columns[dbgrdMain.Columns.Count-1].Title.Caption := 'POTA-H';
     end
   end;
 
@@ -2677,6 +2696,8 @@ begin
   ChangeVis('SRX_STRING',cqrini.ReadBool('Columns', 'ContMsgRcvd', False));
   ChangeVis('DOK',cqrini.ReadBool('Columns', 'DarcDok', False));
   ChangeVis('OPERATOR',cqrini.ReadBool('Columns', 'Operator', False));
+  ChangeVis('POTA_REF',cqrini.ReadBool('Columns', 'PotaA', False));
+  ChangeVis('POTA_HUNTED_REF',cqrini.ReadBool('Columns', 'PotaH', False));
 end;
 
 procedure TfrmMain.MarkQSLSend(symbol: string);

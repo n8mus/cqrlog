@@ -21,6 +21,8 @@ uses
   db, lcltype, Menus, ActnList, Spin, Grids, dynlibs, lNetComponents, lnet, Types;
 
 type
+  TLegendShapes = array[0..5] of TShape;
+
   { TfrmDXCluster }
 
   TfrmDXCluster = class(TForm)
@@ -141,6 +143,12 @@ type
     FirstWebGet : Boolean;
     mindex      : LongInt;
     WebAddr     : String;
+    LegendShapesWeb : TLegendShapes;
+    LegendShapesTel : TLegendShapes;
+    LegendShapesPota : TLegendShapes;
+    lblPotaInfo : TLabel;
+    PotaRunning : Boolean;
+    tmrPota     : TTimer;
 
     gcfgUseBackColor : Boolean;
     gcfgBckColor : TColor;
@@ -152,6 +160,8 @@ type
     gcfgNewBandColor : TColor;
     gcfgNewModeColor : TColor;
     gcfgNeedQSLColor : TColor;
+    gcfgConfirmedColor : TColor;
+    gcfgUnknownColorDX : TColor;
     gcfgShowFrom : Integer;
     gcfgLastSpots : String;
     gcfgIgnoreBandFreq : Boolean;
@@ -180,16 +190,22 @@ type
 
     procedure WebDbClick(where:longint;mb:TmouseButton;ms:TShiftState);
     procedure TelDbClick(where:longint;mb:TmouseButton;ms:TShiftState);
+    procedure PotaDbClick(where:longint;mb:TmouseButton;ms:TShiftState);
     procedure SpotDbClick(Spot:String);
     procedure ConnectToWeb;
     procedure ConnectToTelnet;
+    procedure ConnectToPota;
     procedure SynWeb;
     procedure SynTelnet;
     procedure SynChat;
+    procedure SynPota;
     procedure lConnect(aSocket: TLSocket);
     procedure lDisconnect(aSocket: TLSocket);
     procedure lReceive(aSocket: TLSocket);
     procedure ChangeCallAlertCaption;
+    procedure BuildColorLegend(AParent: TWinControl; var Shapes: TLegendShapes);
+    procedure BuildPotaTab;
+    procedure tmrPotaTimer(Sender: TObject);
 
     function  ShowSpot(spot : String; var sColor : Integer; var Country : String; FromTelnet : Boolean = True) : Boolean;
     function  GetSplit(info : String) :String;
@@ -222,6 +238,12 @@ type
       procedure Execute; override;
   end;
 
+  type
+    TPotaThread = class(TThread)
+    protected
+      procedure Execute; override;
+  end;
+
 var
   frmDXCluster : TfrmDXCluster;
   Spots        : TStringList;
@@ -229,11 +251,14 @@ var
   WebSpots     : TColorMemo;
   TelSpots     : TColorMemo;
   ChatSpots    : TColorMemo;
+  PotaSpots    : TColorMemo;
+  PotaParkRefs : TStringList;
   ThInfo       : String;
   ThSpot       : String;
   ThColor      : Integer;
   ThBckColor   : Integer;
   ThChat       : String;
+  ThParkRef    : String;
   ChBckColor   : Integer;
   TelThread    : TTelThread;
   SentStartCmd : Boolean;
@@ -243,7 +268,7 @@ implementation
 { TfrmDXCluster }
 
 uses dUtils, fDXClusterList, dData, dDXCluster, fMain, fTRXControl, fNewQSO, fBandMap,
-     uMyIni, fPreferences;
+     uMyIni, fPreferences, fpjson, jsonparser;
 
 procedure TfrmDXCluster.ConnectToWeb;
 var
@@ -298,6 +323,18 @@ begin
   end
 end;
 
+procedure TfrmDXCluster.ConnectToPota;
+var
+  PotaThread : TPotaThread = nil;
+begin
+  if PotaRunning then
+    exit;
+  PotaRunning := True;
+  PotaThread  := TPotaThread.Create(True);
+  PotaThread.FreeOnTerminate := True;
+  PotaThread.Start;
+end;
+
 procedure TfrmDXCluster.FormClose(Sender: TObject; var CloseAction: TCloseAction
   );
 begin
@@ -317,6 +354,7 @@ begin
   if ConTelnet then
     btnTelConnect.Click;
   tmrSpots.Enabled := False;
+  tmrPota.Enabled := False;
 end;
 procedure TfrmDXCluster.StoreLastCmd(LastCmd:string);  //scroll &store last typed line
 
@@ -355,7 +393,9 @@ begin
   if dmData.DebugLevel>=1 then Writeln('Closing DXCluster window');
   TelThread.Terminate;
   WebSpots.Free;
-  TelSpots.Free
+  TelSpots.Free;
+  PotaSpots.Free;
+  PotaParkRefs.Free
 end;
 
 procedure TfrmDXCluster.FormActivate(Sender: TObject);
@@ -468,7 +508,8 @@ begin
     cqrini.WriteString('DXCluster','FontStyle',FontStylesToString(dlgDXfnt.Font.Style));
     WebSpots.SetFont(dlgDXfnt.Font);
     TelSpots.SetFont(dlgDXfnt.Font);
-    ChatSpots.SetFont(dlgDXfnt.Font)
+    ChatSpots.SetFont(dlgDXfnt.Font);
+    PotaSpots.SetFont(dlgDXfnt.Font)
   end
 end;
 function TfrmDXCluster.FontStylesToString(Styles: TFontStyles): string;
@@ -528,6 +569,7 @@ begin
   lTelnet.OnDisconnect := @lDisconnect;
   lTelnet.OnReceive    := @lReceive;
 
+  BuildColorLegend(pnlWeb, LegendShapesWeb);
   WebSpots             := TColorMemo.Create(pnlWeb);
   WebSpots.parent      := pnlWeb;
   WebSpots.AutoScroll  := True;
@@ -536,6 +578,7 @@ begin
   WebSpots.setLanguage(1);
 
 
+  BuildColorLegend(pnlTelnet, LegendShapesTel);
   TelSpots             := TColorMemo.Create(pnlTelnet);
   TelSpots.parent      := pnlTelnet;
   TelSpots.AutoScroll  := True;
@@ -551,16 +594,25 @@ begin
   ChatSpots.Align       := alClient;
   ChatSpots.setLanguage(1);
 
+  BuildPotaTab;
+  PotaParkRefs := TStringList.Create;
+
   Spots := TStringList.Create;
   Spots.Clear;
   Chats := TStringList.Create;
   Chats.Clear;
 
   Running := False;
+  PotaRunning := False;
 
   TelThread := TTelThread.Create(True);
   TelThread.FreeOnTerminate := True;
   TelThread.Start;
+
+  tmrPota          := TTimer.Create(Self);
+  tmrPota.Interval := 60000;
+  tmrPota.OnTimer  := @tmrPotaTimer;
+  tmrPota.Enabled  := False;
   HistPtr:=5;               //initialize command history to be clean
   repeat
         Begin
@@ -632,6 +684,20 @@ var
   TelSpots.ReadLine(spot,tmp,tmp,tmp,where);
   SpotDbClick(spot);
 end;
+
+procedure TfrmDXCluster.PotaDbClick(where:longint;mb:TmouseButton;ms:TShiftState);
+var
+  spot : String = '';
+  tmp  : Integer = 0;
+  park : String;
+begin
+  PotaSpots.ReadLine(spot,tmp,tmp,tmp,where);
+  SpotDbClick(spot);
+  park := PotaParkRefs.Values[spot];
+  if park <> '' then
+    frmNewQSO.SetHuntedPark(park);
+end;
+
 procedure TfrmDXCluster.SpotDbClick(Spot:String);
 var
   freq : String = '';
@@ -668,7 +734,8 @@ begin
     WebAddr   := cqrini.ReadString('DXCluster','WebAddr','https://www.hamqth.com/dxc_csv.php?limit=');
     WebSpots.SetFont(f);
     TelSpots.SetFont(f) ;
-    ChatSpots.SetFont(f)
+    ChatSpots.SetFont(f);
+    PotaSpots.SetFont(f)
   finally
     f.Free
   end;
@@ -694,6 +761,8 @@ begin
   LockScroll:=False;
   tabFkeysShow(nil);
   mindex:=1;
+  tmrPota.Enabled := True;
+  ConnectToPota;
 end;
 
 procedure TfrmDXCluster.btnClearClick(Sender: TObject);
@@ -996,7 +1065,7 @@ begin
           dmDXCluster.DXCCInfo(SkimCTYid,FloatToStr(etmp/1000),SkimMode,QSLState);
           if dmData.DebugLevel>=1 then Writeln('QSLState: ' + FloatToStr(QSLState));
           case QSLState of
-            0:
+            5:
               begin
                 lTelnet.SendMessage('SKIMMER/STATUS ' + SkimCall + ' ' + SkimFreq + ' DUPE' + #13 + #10);
                 if dmData.DebugLevel>=1 then Writeln('DUPE');
@@ -1055,6 +1124,11 @@ procedure TfrmDXCluster.tmrSpotsTimer(Sender: TObject);
 begin
   if pgDXCluster.ActivePageIndex = 0 then
     ConnectToWeb;
+end;
+
+procedure TfrmDXCluster.tmrPotaTimer(Sender: TObject);
+begin
+  ConnectToPota;
 end;
 
 procedure TfrmDXCluster.trChatSizeChange(Sender: TObject);
@@ -1173,6 +1247,8 @@ var
   cfgNewBandColor : TColor;
   cfgNewModeColor : TColor;
   cfgNeedQSLColor : TColor;
+  cfgConfirmedColor : TColor;
+  cfgUnknownColorDX : TColor;
   cfgShowFrom : Integer;
   cfgLastSpots : String;
   cfgIgnoreBandFreq : Boolean;
@@ -1220,6 +1296,8 @@ begin
     cfgNewBandColor := gcfgNewBandColor;
     cfgNewModeColor := gcfgNewModeColor;
     cfgNeedQSLColor := gcfgNeedQSLColor;
+    cfgConfirmedColor := gcfgConfirmedColor;
+    cfgUnknownColorDX := gcfgUnknownColorDX;
     cfgShowFrom     := gcfgShowFrom;
     cfgLastSpots    := gcfgLastSpots;
     cfgIgnoreBandFreq := gcfgIgnoreBandFreq;
@@ -1415,7 +1493,7 @@ begin
     end
   end;
   if index = 0 then
-    sColor := clWindowText;
+    sColor := cfgUnknownColorDX;
   if index = 1 then
     sColor := cfgNewCountryColor;
   if index = 2 then
@@ -1424,6 +1502,8 @@ begin
     sColor := cfgNewModeColor;
   if index = 4 then
     sColor := cfgNeedQSLColor;
+  if index = 5 then
+    sColor := cfgConfirmedColor;
 
   if (cont='') or (prefix='') then
     ToBandMap := True; //for MM stations etc.
@@ -1697,6 +1777,123 @@ begin
   end
 end;
 
+procedure TPotaThread.Execute;
+
+  function SpacesFromLeft(What : String; TargetLen : Integer) : String;
+  var
+    n : Integer;
+    i : Integer;
+  begin
+    Result := What;
+    n := TargetLen - Length(what);
+    if n < 0 then
+      Result := copy(What,1,abs(n))
+    else begin
+      for i:=Length(What) to TargetLen do
+        Result := ' '+Result;
+    end
+  end;
+
+  function SpacesFromRight(What : String; TargetLen : Integer) : String;
+  var
+    n : Integer;
+    i : Integer;
+  begin
+    Result := What;
+    n := TargetLen - Length(what);
+    if n < 0 then
+      Result := copy(What,1,abs(n))
+    else begin
+      for i:=Length(What) to TargetLen do
+        Result := Result+' ';
+    end
+  end;
+
+var
+  HTTP      : THTTPSend;
+  sp        : TStringList;
+  Jdata     : TJSONData;
+  Jarr      : TJSONArray;
+  Jobj      : TJSONObject;
+  i         : Integer;
+  spot      : String;
+  info      : String;
+  sColor    : TColor;
+  Country   : String;
+  activator, freqKHz, reference, parkName, spotter, comments, spotTime, hhmm : String;
+begin
+  if dmData.DebugLevel>=1 then
+    Writeln('In TPotaThread.Execute');
+  FreeOnTerminate := True;
+  HTTP := THTTPSend.Create;
+  sp   := TStringList.Create;
+  try
+    ThInfo := 'Fetching POTA spots ...';
+    Synchronize(@frmDXCluster.SynPota);
+    HTTP.ProxyHost := cqrini.ReadString('Program','Proxy','');
+    HTTP.ProxyPort := cqrini.ReadString('Program','Port','');
+    HTTP.UserName  := cqrini.ReadString('Program','User','');
+    HTTP.Password  := cqrini.ReadString('Program','Passwd','');
+    if not HTTP.HTTPMethod('GET','https://api.pota.app/spot/activator') then
+    begin
+      ThInfo := 'POTA fetch failed';
+      Synchronize(@frmDXCluster.SynPota);
+      exit
+    end;
+    sp.LoadFromStream(HTTP.Document);
+    Jdata := GetJSON(sp.Text);
+    try
+      if not (Jdata is TJSONArray) then
+        exit;
+      Jarr := TJSONArray(Jdata);
+      for i:=0 to Jarr.Count-1 do
+      begin
+        Jobj := Jarr.Objects[i];
+        if not Assigned(Jobj) then
+          Continue;
+        activator := Jobj.Get('activator','');
+        freqKHz   := Jobj.Get('frequency','');
+        reference := Jobj.Get('reference','');
+        parkName  := Jobj.Get('name','');
+        spotter   := Jobj.Get('spotter','');
+        comments  := Jobj.Get('comments','');
+        spotTime  := Jobj.Get('spotTime','');
+        if (activator = '') or (freqKHz = '') then
+          Continue;
+        hhmm := '0000';
+        if Length(spotTime) >= 16 then
+          hhmm := copy(spotTime,12,2)+copy(spotTime,15,2);
+        info := '['+reference+' '+parkName+'] '+comments;
+        spot := SpacesFromRight('DX de '+spotter+':',13) +
+                SpacesFromLeft(freqKHz,8) + ' ' +
+                SpacesFromRight(activator,12) + ' ' +
+                SpacesFromRight(info,28) + ' ' +
+                hhmm+'Z';
+        EnterCriticalsection(frmDXCluster.csTelnet);
+        try
+          if frmDXCluster.ShowSpot(spot,sColor,Country) then
+          begin
+            ThSpot    := spot;
+            ThColor   := sColor;
+            ThInfo    := '';
+            ThParkRef := reference;
+            Synchronize(@frmDXCluster.SynPota)
+          end
+        finally
+          LeaveCriticalsection(frmDXCluster.csTelnet)
+        end
+      end
+    finally
+      Jdata.Free
+    end
+  finally
+    ThInfo := '';
+    HTTP.Free;
+    sp.Free;
+    frmDXCluster.PotaRunning := False
+  end
+end;
+
 procedure TfrmDXCluster.SynWeb;
 begin
   lblInfo.Caption := ThInfo;
@@ -1766,6 +1963,89 @@ begin
   end;
 end;
 
+procedure TfrmDXCluster.SynPota;
+begin
+  if Assigned(lblPotaInfo) then
+    lblPotaInfo.Caption := ThInfo;
+  if ThSpot = '' then
+    exit;
+  PotaParkRefs.Values[ThSpot] := ThParkRef;
+  if PotaSpots.Search(ThSpot,0,True,True) = -1 then
+  begin
+    PotaSpots.DisableAutoRepaint(true);
+    PotaSpots.AddLine(ThSpot,ThColor,ThBckColor,0);
+    PotaSpots.DisableAutoRepaint(false)
+  end
+end;
+
+procedure TfrmDXCluster.BuildColorLegend(AParent: TWinControl; var Shapes: TLegendShapes);
+const
+  Captions: array[0..5] of String = ('Unknown', 'New country', 'New band',
+                                      'New mode', 'QSL needed', 'Confirmed');
+var
+  pnl: TPanel;
+  lbl: TLabel;
+  x, i, w: Integer;
+begin
+  pnl := TPanel.Create(AParent);
+  pnl.Parent := AParent;
+  pnl.Align := alTop;
+  pnl.Height := 20;
+  pnl.BevelInner := bvNone;
+  pnl.BevelOuter := bvNone;
+  pnl.Caption := '';
+
+  x := 4;
+  for i := 0 to 5 do
+  begin
+    Shapes[i] := TShape.Create(pnl);
+    Shapes[i].Parent := pnl;
+    Shapes[i].Shape := stRectangle;
+    Shapes[i].Pen.Color := clWindowFrame;
+    Shapes[i].SetBounds(x, 4, 12, 12);
+    x := x + 16;
+
+    lbl := TLabel.Create(pnl);
+    lbl.Parent := pnl;
+    lbl.Caption := Captions[i];
+    w := lbl.Canvas.TextWidth(Captions[i]) + 4;
+    lbl.SetBounds(x, 3, w, 14);
+    x := x + w + 14;
+  end;
+end;
+
+procedure TfrmDXCluster.BuildPotaTab;
+var
+  tab : TTabSheet;
+  pnl : TPanel;
+begin
+  tab := TTabSheet.Create(pgDXCluster);
+  tab.PageControl := pgDXCluster;
+  tab.Caption := 'POTA';
+
+  BuildColorLegend(tab, LegendShapesPota);
+
+  pnl := TPanel.Create(tab);
+  pnl.Parent := tab;
+  pnl.Align := alBottom;
+  pnl.Height := 20;
+  pnl.BevelInner := bvNone;
+  pnl.BevelOuter := bvNone;
+  pnl.Caption := '';
+
+  lblPotaInfo := TLabel.Create(pnl);
+  lblPotaInfo.Parent := pnl;
+  lblPotaInfo.Caption := '';
+  lblPotaInfo.SetBounds(8, 3, 400, 14);
+
+  PotaSpots            := TColorMemo.Create(tab);
+  PotaSpots.Parent     := tab;
+  PotaSpots.AutoScroll := True;
+  PotaSpots.oncDblClick:= @PotaDbClick;
+  PotaSpots.Align      := alClient;
+  PotaSpots.setLanguage(1);
+end;
+
 procedure TfrmDXCluster.ReloadSettings;
 begin
   EnterCriticalSection(csDXCPref);
@@ -1792,10 +2072,14 @@ begin
     gcfgOC  := cqrini.ReadBool('BandMap','wOC',True);
     gcfgiDXCC := cqrini.ReadString('BandMap','iDXCC','');
     gcfgwIOTA := cqrini.ReadBool('BandMap','wIOTA', True);
-    gcfgNewCountryColor := cqrini.ReadInteger('DXCluster','NewCountry',0);
-    gcfgNewBandColor := cqrini.ReadInteger('DXCluster','NewBand',0);
-    gcfgNewModeColor := cqrini.ReadInteger('DXCluster','NewMode',0);
-    gcfgNeedQSLColor := cqrini.ReadInteger('DXCluster','NeedQSL',0);
+    // Defaults form a severity gradient a human can parse at a glance:
+    // red (act now) -> orange -> amber -> blue (paperwork) -> green (done) -> gray (lookup failed)
+    gcfgNewCountryColor := cqrini.ReadInteger('DXCluster','NewCountry',clRed);
+    gcfgNewBandColor := cqrini.ReadInteger('DXCluster','NewBand',RGBToColor(255,140,0));
+    gcfgNewModeColor := cqrini.ReadInteger('DXCluster','NewMode',RGBToColor(204,153,0));
+    gcfgNeedQSLColor := cqrini.ReadInteger('DXCluster','NeedQSL',clBlue);
+    gcfgConfirmedColor := cqrini.ReadInteger('DXCluster','Confirmed',clGreen);
+    gcfgUnknownColorDX := cqrini.ReadInteger('DXCluster','UnknownCty',clGray);
     gcfgShowFrom     := cqrini.ReadInteger('xplanet','ShowFrom',0);
     gcfgLastSpots    := cqrini.ReadString('xplanet','LastSpots','20');
     gcfgIgnoreBandFreq := cqrini.ReadBool('BandMap','IgnoreBandFreq',True);
@@ -1803,6 +2087,34 @@ begin
     gcfgClusterColor := cqrini.ReadInteger('BandMap','ClusterColor',clBlack);
     gcfgNotShow := cqrini.ReadString('DXCluster','NotShow','');
     tmrKeepAlive.Interval :=  cqrini.ReadInteger('DXCluster', 'KeepAliveTime', 30)*60*1000; //target is minutes
+
+    if Assigned(LegendShapesWeb[0]) then
+    begin
+      LegendShapesWeb[0].Brush.Color := gcfgUnknownColorDX;
+      LegendShapesWeb[1].Brush.Color := gcfgNewCountryColor;
+      LegendShapesWeb[2].Brush.Color := gcfgNewBandColor;
+      LegendShapesWeb[3].Brush.Color := gcfgNewModeColor;
+      LegendShapesWeb[4].Brush.Color := gcfgNeedQSLColor;
+      LegendShapesWeb[5].Brush.Color := gcfgConfirmedColor;
+    end;
+    if Assigned(LegendShapesTel[0]) then
+    begin
+      LegendShapesTel[0].Brush.Color := gcfgUnknownColorDX;
+      LegendShapesTel[1].Brush.Color := gcfgNewCountryColor;
+      LegendShapesTel[2].Brush.Color := gcfgNewBandColor;
+      LegendShapesTel[3].Brush.Color := gcfgNewModeColor;
+      LegendShapesTel[4].Brush.Color := gcfgNeedQSLColor;
+      LegendShapesTel[5].Brush.Color := gcfgConfirmedColor;
+    end;
+    if Assigned(LegendShapesPota[0]) then
+    begin
+      LegendShapesPota[0].Brush.Color := gcfgUnknownColorDX;
+      LegendShapesPota[1].Brush.Color := gcfgNewCountryColor;
+      LegendShapesPota[2].Brush.Color := gcfgNewBandColor;
+      LegendShapesPota[3].Brush.Color := gcfgNewModeColor;
+      LegendShapesPota[4].Brush.Color := gcfgNeedQSLColor;
+      LegendShapesPota[5].Brush.Color := gcfgConfirmedColor;
+    end;
   finally
     LeaveCriticalSection(csDXCPref)
   end

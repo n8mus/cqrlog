@@ -24,7 +24,10 @@ uses
 
 const
   cDB_LIMIT = 500;
-  cDB_MAIN_VER = 19;
+  // 21, not 20 - some installs already have a stored db_version of 20 from a
+  // newer build not present in this branch's history; using 21 guarantees the
+  // migration below actually fires for those installs instead of being skipped.
+  cDB_MAIN_VER = 21;
   cDB_COMN_VER = 8;
   cDB_PING_INT = 300;  //ping interval for database connection in seconds
                        //program crashed after long time of inactivity
@@ -303,14 +306,14 @@ type
                       idcall,state,dok,cont : String; qso_dxcc : Boolean; profile : Integer;
                       nclub1,nclub2,nclub3,nclub4,nclub5, PropMode, Satellite : String;
                       RxFreq : Currency;srx : String;stx : String;srx_string : String;stx_string : String;
-                      contestname : String; Op : String);
+                      contestname : String; Op : String; PotaRef : String = ''; PotaHuntedRef : String = '');
 
     procedure EditQSO(date : TDateTime; time_on,time_off,call : String; freq : Currency;mode,rst_s,
                       rst_r, stn_name,qth,qsl_s,qsl_r,qsl_via,iota,pwr : String; itu,waz : Integer;
                       loc, my_loc,county,award,remarks : String; adif : Word; idcall,state,dok,cont : String;
                       qso_dxcc : Boolean; profile : Integer; PropMode, Satellite : String;
                       RxFreq : Currency; idx : LongInt;srx : String;stx : String;srx_string : String;stx_string : String;
-                      contestname : String; Op : String);
+                      contestname : String; Op : String; PotaRef : String = ''; PotaHuntedRef : String = '');
     procedure SaveComment(call,text : String);
     procedure DeleteComment(id : Integer);
     procedure PrepareImport;
@@ -1427,7 +1430,7 @@ procedure TdmData.SaveQSO(date : TDateTime; time_on,time_off,call : String; freq
                  idcall,state,dok,cont : String; qso_dxcc : Boolean; profile : Integer;
                  nclub1,nclub2,nclub3,nclub4,nclub5, PropMode, Satellite : String;
                  RxFreq : Currency;srx : String;stx : String;srx_string : String;stx_string : String;
-                 contestname : String; Op : String);
+                 contestname : String; Op : String; PotaRef : String = ''; PotaHuntedRef : String = '');
 var
   qsodate : String;
   band    : String;
@@ -1458,7 +1461,7 @@ begin
                  'rst_s,rst_r,name,qth,qsl_s,qsl_r,qsl_via,iota,pwr,itu,waz,loc,my_loc,'+
                  'county,award,remarks,adif,idcall,state,qso_dxcc,band,profile,cont,club_nr1,'+
                  'club_nr2,club_nr3,club_nr4,club_nr5, prop_mode, satellite, rxfreq, srx, stx,'+
-                 'srx_string, stx_string, contestname, dok, operator) values('+QuotedStr(qsodate) +
+                 'srx_string, stx_string, contestname, dok, operator, pota_ref, pota_hunted_ref) values('+QuotedStr(qsodate) +
                  ','+QuotedStr(time_on)+','+QuotedStr(time_off)+
                  ','+QuotedStr(call)+','+FloatToStr(freq)+
                  ','+QuotedStr(mode)+','+QuotedStr(rst_s)+
@@ -1477,7 +1480,15 @@ begin
                  ','+QuotedStr(srx)+','+QuotedStr(stx)+','+QuotedStr(srx_string)+','+QuotedStr(stx_string)+','+QuotedStr(contestname)+
                  ','+QuotedStr(dok);
   if (Op <> '') then
-     Q.SQL.Text := Q.SQL.Text+','+QuotedStr(Op)+')'
+     Q.SQL.Text := Q.SQL.Text+','+QuotedStr(Op)
+  else
+     Q.SQL.Text := Q.SQL.Text+', NULL';
+  if (PotaRef <> '') then
+     Q.SQL.Text := Q.SQL.Text+','+QuotedStr(UpperCase(PotaRef))
+  else
+     Q.SQL.Text := Q.SQL.Text+', NULL';
+  if (PotaHuntedRef <> '') then
+     Q.SQL.Text := Q.SQL.Text+','+QuotedStr(UpperCase(PotaHuntedRef))+')'
   else
      Q.SQL.Text := Q.SQL.Text+', NULL)';
   if fDebugLevel >=1 then
@@ -1491,7 +1502,7 @@ procedure TdmData.EditQSO(date : TDateTime; time_on,time_off,call : String; freq
                  loc, my_loc,county,award,remarks : String; adif : Word; idcall,state,dok,cont : String;
                  qso_dxcc : Boolean; profile : Integer; PropMode, Satellite : String;
                  RxFreq : Currency; idx : LongInt;srx : String;stx : String;srx_string : String;stx_string : String;
-                 contestname : String; Op : String);
+                 contestname : String; Op : String; PotaRef : String = ''; PotaHuntedRef : String = '');
 var
   qsodate : String;
   band    : String;
@@ -1540,6 +1551,14 @@ begin
     Q.SQL.Text := Q.SQL.Text+', operator = ' + QuotedStr(Op)
   else
     Q.SQL.Text := Q.SQL.Text+', operator = NULL';
+  if (PotaRef <> '') then
+    Q.SQL.Text := Q.SQL.Text+', pota_ref = ' + QuotedStr(UpperCase(PotaRef))
+  else
+    Q.SQL.Text := Q.SQL.Text+', pota_ref = NULL';
+  if (PotaHuntedRef <> '') then
+    Q.SQL.Text := Q.SQL.Text+', pota_hunted_ref = ' + QuotedStr(UpperCase(PotaHuntedRef))
+  else
+    Q.SQL.Text := Q.SQL.Text+', pota_hunted_ref = NULL';
   Q.SQL.Text := Q.SQL.Text+' where id_cqrlog_main = ' + IntToStr(idx);
   if fDebugLevel >=1 then
     Writeln(Q.SQL.Text);
@@ -3309,6 +3328,26 @@ begin
                 Q1.ExecSQL;
                 trQ1.Commit;
               end;
+      end;
+
+      if (old_version < 21) then
+      begin
+        if not FieldExists('cqrlog_main','pota_ref') then
+        begin
+          trQ1.StartTransaction;
+          Q1.SQL.Text := 'alter table cqrlog_main add pota_ref varchar(60) null';
+          if fDebugLevel>=1 then Writeln(Q1.SQL.Text);
+          Q1.ExecSQL;
+          trQ1.Commit
+        end;
+        if not FieldExists('cqrlog_main','pota_hunted_ref') then
+        begin
+          trQ1.StartTransaction;
+          Q1.SQL.Text := 'alter table cqrlog_main add pota_hunted_ref varchar(15) null';
+          if fDebugLevel>=1 then Writeln(Q1.SQL.Text);
+          Q1.ExecSQL;
+          trQ1.Commit
+        end
       end;
 
       if TableExists('view_cqrlog_main_by_callsign') then

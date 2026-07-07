@@ -197,7 +197,7 @@ var
                      QTH,QSLS,QSLR,QSLVIA,IOTA,Power,Itu,waz,loc,Myloc,Op,County,
                      Award,Remarks,dxcc,state,band,profile,LQslS,LQslSDate,LQslR,LQslRDate,continent,
                      QSLSDate,QSLRDate,eQslS,eQslSDate,eQslR,eQslRDate,PropMode, Satellite, RxFreq, stx,
-                     srx, stx_string, srx_string, contestname, Darc_Dok : String);
+                     srx, stx_string, srx_string, contestname, Darc_Dok, PotaRef, PotaHuntedRef : String);
 
   var
      station_callsign  :String = '';
@@ -417,6 +417,16 @@ var
        end;
     if (ExDarcDok and (Darc_Dok <> '')) then
        SaveTag(dmUtils.StringToADIF('<DARC_DOK',Darc_Dok),leng);
+    if (PotaRef <> '') then
+    begin
+      SaveTag(dmUtils.StringToADIF('<MY_SIG','POTA'),leng);
+      SaveTag(dmUtils.StringToADIF('<MY_SIG_INFO',PotaRef),leng);
+    end;
+    if (PotaHuntedRef <> '') then
+    begin
+      SaveTag(dmUtils.StringToADIF('<SIG','POTA'),leng);
+      SaveTag(dmUtils.StringToADIF('<SIG_INFO',PotaHuntedRef),leng);
+    end;
 
     Writeln(f);
     Write(f,'<EOR>');
@@ -560,7 +570,9 @@ begin   //TfrmExportProgress
                  Source.FieldByName('stx_string').AsString,
                  Source.FieldByName('srx_string').AsString,
                  Source.FieldByName('contestname').AsString,
-                 Source.FieldByName('dok').AsString
+                 Source.FieldByName('dok').AsString,
+                 Source.FieldByName('pota_ref').AsString,
+                 Source.FieldByName('pota_hunted_ref').AsString
                   );
           pBarProg.StepIt;
           if (i mod 100 = 0) then

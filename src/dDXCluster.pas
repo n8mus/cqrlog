@@ -290,11 +290,12 @@ var
 begin
   EnterCriticalsection(csDX);
   try
-    // index : 0 - unknown country, no qsl needed
+    // index : 0 - unknown country (DXCC lookup failed)
     // index : 1 - New country
     // index : 2 - New band country
     // index : 3 - New mode country
     // index : 4 - QSL needed
+    // index : 5 - Confirmed (nothing needed)
     lotw := cqrini.ReadBool('LoTW','NewQSOLoTW',False);
     if (adif = 0) then
     begin
@@ -359,7 +360,7 @@ begin
       if Q.Fields[0].AsInteger > 0 then
       begin
         Result := 'Confirmed country!!';
-        index  := 0
+        index  := 5
       end
       else begin
         Q.Close;
