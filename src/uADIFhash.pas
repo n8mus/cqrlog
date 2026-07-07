@@ -59,6 +59,8 @@ const h_SIG = 5967;
 const h_SIG_INFO = 7265;
 const h_MY_SIG = 58723;
 const h_MY_SIG_INFO = 42312;
+const h_POTA_REF = 56324;
+const h_MY_POTA_REF = 13115;
 
 //max length                               database lenght
 const l_BAND = 6;//10;                     // band             varchar(6)        FIXED if longer than database

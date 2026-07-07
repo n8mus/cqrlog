@@ -357,6 +357,12 @@ function TfrmAdifImport.fillTypeVariableWithTagData(h:longint;var data:string;va
     h_MY_SIG_INFO                   :d.POTA_REF:=UTF8UpperCase(TrimDataLen(adifTag,data,l_MY_SIG_INFO));
     h_SIG_INFO                      :d.POTA_HUNTED_REF:=UTF8UpperCase(TrimDataLen(adifTag,data,l_SIG_INFO));
     h_SIG, h_MY_SIG                 : ; //literal 'POTA' marker, no data of our own to store
+    // Standardized ADIF 3.1.4 fields - some programs (e.g. Ham Radio Deluxe)
+    // write these instead of the legacy SIG_INFO/MY_SIG_INFO pair pota.app
+    // itself still expects. Only fill in if the legacy tag wasn't present,
+    // so the pota.app-compatible tag always wins when both are given.
+    h_MY_POTA_REF                   :if d.POTA_REF='' then d.POTA_REF:=UTF8UpperCase(TrimDataLen(adifTag,data,l_MY_SIG_INFO));
+    h_POTA_REF                      :if d.POTA_HUNTED_REF='' then d.POTA_HUNTED_REF:=UTF8UpperCase(TrimDataLen(adifTag,data,l_SIG_INFO));
 
     else begin
         { writeln('Unnamed...>',pom,'<');fillTypeVariableWithTagData:=false;exit;}
