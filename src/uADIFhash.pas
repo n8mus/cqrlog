@@ -121,8 +121,8 @@ const l_PROP_MODE = 30;               // prop_mode        varchar(30)
 const l_SAT_NAME = 30;                // satellite        varchar(30)
 const l_FREQ_RX = 30;                 // rxfreq           decimal(10,4)
 const l_OP = 20;//30;                      // operator         varchar(20)
-const l_SIG_INFO = 15;                // pota_hunted_ref  varchar(15)
-const l_MY_SIG_INFO = 60;             // pota_ref         varchar(60)
+const l_SIG_INFO = 80;                // pota_hunted_ref  varchar(80) - comma-separated for N-fer P2P
+const l_MY_SIG_INFO = 80;             // pota_ref         varchar(80) - comma-separated for N-fer P2P
 
                                       // adif             int(11)
                                       // profile          int(11)

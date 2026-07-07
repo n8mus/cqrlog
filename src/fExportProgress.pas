@@ -179,6 +179,19 @@ var
   FirstBackupPath : String;
   qrb,             //distance
   qrc :String;     //azimuth
+  MyParks, HuntedParks : TStringList;
+  pa, pb : Integer;
+
+  //------------------------------------------------------
+  procedure SplitParks(s : String; list : TStringList);
+  begin
+    list.Clear;
+    list.Delimiter     := ',';
+    list.StrictDelimiter := True;
+    list.DelimitedText := s;
+    if list.Count = 0 then
+      list.Add(''); // always iterate at least once, even with no POTA data
+  end;
 
   //------------------------------------------------------
   procedure SaveTag(TagData:String; var leng:word);
@@ -493,6 +506,8 @@ begin   //TfrmExportProgress
       Source := dmData.qCQRLOG;
 
     Source.DisableControls;
+    MyParks     := TStringList.Create;
+    HuntedParks := TStringList.Create;
     try
       Source.First;
       while not Source.Eof do
@@ -524,6 +539,14 @@ begin   //TfrmExportProgress
           eqsl_qslrdate := ''
         else
           eqsl_qslrdate := dmUtils.DateInRightFormat(Source.Fields[44].AsDateTime);
+        // POTA N-fer (multi-park) credit needs one full ADIF record per park
+        // reference - a comma-separated pota_ref/pota_hunted_ref expands into
+        // the cross product of "my parks" x "parks worked", same as the
+        // single-value case reduces to exactly one call.
+        SplitParks(Source.FieldByName('pota_ref').AsString, MyParks);
+        SplitParks(Source.FieldByName('pota_hunted_ref').AsString, HuntedParks);
+        for pa := 0 to MyParks.Count-1 do
+        for pb := 0 to HuntedParks.Count-1 do
         SaveDataA(dmUtils.DateInRightFormat(Source.Fields[1].AsDateTime),//qsodate
                  Source.Fields[2].AsString,//time_on
                  Source.Fields[3].AsString,//time_off
@@ -571,8 +594,8 @@ begin   //TfrmExportProgress
                  Source.FieldByName('srx_string').AsString,
                  Source.FieldByName('contestname').AsString,
                  Source.FieldByName('dok').AsString,
-                 Source.FieldByName('pota_ref').AsString,
-                 Source.FieldByName('pota_hunted_ref').AsString
+                 MyParks[pa],
+                 HuntedParks[pb]
                   );
           pBarProg.StepIt;
           if (i mod 100 = 0) then
@@ -585,6 +608,8 @@ begin   //TfrmExportProgress
       end
      finally
        Source.EnableControls;
+       MyParks.Free;
+       HuntedParks.Free;
        dmData.Q.Close;
        if dmData.trQ.Active then
          dmData.trQ.Rollback

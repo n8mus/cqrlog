@@ -447,7 +447,10 @@ begin
       trQ.Rollback;
 
     try try
-      Q.SQL.Text := 'SELECT id_cqrlog_main FROM '+dmData.DBName+'.cqrlog_main WHERE pota_hunted_ref='+QuotedStr(reference)+
+      // pota_hunted_ref can hold a comma-separated list of park refs (N-fer
+      // P2P credit for multiple simultaneously-activated parks), so an exact
+      // '=' match would miss a park that isn't the only one on the QSO.
+      Q.SQL.Text := 'SELECT id_cqrlog_main FROM '+dmData.DBName+'.cqrlog_main WHERE FIND_IN_SET('+QuotedStr(reference)+',pota_hunted_ref)'+
                     ' AND band='+QuotedStr(band)+
                     Smode+
                     ' LIMIT 1';
@@ -461,7 +464,7 @@ begin
       end
       else begin
         Q.Close;
-        Q.SQL.Text := 'SELECT id_cqrlog_main FROM '+dmData.DBName+'.cqrlog_main WHERE pota_hunted_ref='+QuotedStr(reference)+
+        Q.SQL.Text := 'SELECT id_cqrlog_main FROM '+dmData.DBName+'.cqrlog_main WHERE FIND_IN_SET('+QuotedStr(reference)+',pota_hunted_ref)'+
                       ' LIMIT 1';
         Q.Open;
         if Q.Fields[0].AsInteger > 0 then

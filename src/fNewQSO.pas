@@ -3243,7 +3243,8 @@ begin
   edtPotaRef.Parent := tab;
   edtPotaRef.SetBounds(8, 32, 120, 23);
   edtPotaRef.CharCase := ecUpperCase;
-  edtPotaRef.Hint := 'Leave blank if you are just hunting. Park you are activating from - stays filled in for the rest of the activation.';
+  edtPotaRef.MaxLength := 80;
+  edtPotaRef.Hint := 'Leave blank if you are just hunting. Park you are activating from - stays filled in for the rest of the activation. Activating more than one park at once (a "two-fer"/"three-fer")? Separate refs with a comma, e.g. US-1234,US-5678.';
   edtPotaRef.ShowHint := True;
 
   lbl := TLabel.Create(tab);
@@ -3255,7 +3256,8 @@ begin
   edtPotaHuntedRef.Parent := tab;
   edtPotaHuntedRef.SetBounds(8, 84, 120, 23);
   edtPotaHuntedRef.CharCase := ecUpperCase;
-  edtPotaHuntedRef.Hint := 'The park the OTHER station is activating - fill this in whether you are hunting or park-to-park.';
+  edtPotaHuntedRef.MaxLength := 80;
+  edtPotaHuntedRef.Hint := 'The park the OTHER station is activating - fill this in whether you are hunting or park-to-park. If they are running a "two-fer"/"three-fer" (multiple parks at once), separate refs with a comma, e.g. US-1234,US-5678.';
   edtPotaHuntedRef.ShowHint := True;
 end;
 
@@ -7253,8 +7255,26 @@ begin
 end;
 
 procedure TfrmNewQSO.SetHuntedPark(ParkRef : String);
+var
+  existing : TStringList;
 begin
-  edtPotaHuntedRef.Text := ParkRef;
+  ParkRef := UpperCase(Trim(ParkRef));
+  if ParkRef = '' then
+    exit;
+  // Append rather than overwrite so clicking several spots from the same
+  // N-fer activator (a "two-fer"/"three-fer") builds up the comma-separated
+  // list instead of each click wiping out the previous park ref.
+  existing := TStringList.Create;
+  try
+    existing.Delimiter       := ',';
+    existing.StrictDelimiter := True;
+    existing.DelimitedText   := edtPotaHuntedRef.Text;
+    if existing.IndexOf(ParkRef) = -1 then
+      existing.Add(ParkRef);
+    edtPotaHuntedRef.Text := existing.DelimitedText;
+  finally
+    existing.Free
+  end
 end;
 
 procedure TfrmNewQSO.SetEditLabel;

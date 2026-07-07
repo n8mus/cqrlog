@@ -27,7 +27,7 @@ const
   // 21, not 20 - some installs already have a stored db_version of 20 from a
   // newer build not present in this branch's history; using 21 guarantees the
   // migration below actually fires for those installs instead of being skipped.
-  cDB_MAIN_VER = 21;
+  cDB_MAIN_VER = 22;
   cDB_COMN_VER = 8;
   cDB_PING_INT = 300;  //ping interval for database connection in seconds
                        //program crashed after long time of inactivity
@@ -3348,6 +3348,23 @@ begin
           Q1.ExecSQL;
           trQ1.Commit
         end
+      end;
+
+      if (old_version < 22) then
+      begin
+        // widened to hold comma-separated multi-park refs for N-fer (multi-park
+        // activation) P2P credit, which POTA scores per park reference
+        trQ1.StartTransaction;
+        Q1.SQL.Text := 'alter table cqrlog_main modify pota_ref varchar(80) null';
+        if fDebugLevel>=1 then Writeln(Q1.SQL.Text);
+        Q1.ExecSQL;
+        trQ1.Commit;
+
+        trQ1.StartTransaction;
+        Q1.SQL.Text := 'alter table cqrlog_main modify pota_hunted_ref varchar(80) null';
+        if fDebugLevel>=1 then Writeln(Q1.SQL.Text);
+        Q1.ExecSQL;
+        trQ1.Commit
       end;
 
       if TableExists('view_cqrlog_main_by_callsign') then
