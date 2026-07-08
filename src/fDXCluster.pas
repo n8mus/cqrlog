@@ -1593,8 +1593,19 @@ var
   cfgCW   : Boolean;
   cfgSSB  : Boolean;
   cfgDATA : Boolean;
+
+  cfgUseBackColor  : Boolean;
+  cfgBckColor      : TColor;
+  cfgeUseBackColor : Boolean;
+  cfgeBckColor     : TColor;
+  isLoTW : Boolean;
+  isEQSL : Boolean;
 begin
   sColor := clWindowText;
+  // ThBckColor is a single unit-level var shared with the Web/Telnet tabs'
+  // ShowSpot (which sets it from LoTW/eQSL status); without setting it here
+  // too, this tab would inherit whatever the other tabs' threads left behind.
+  ThBckColor := clWindow;
   Result := False;
   mode := UpperCase(Trim(spotMode));
   if (reference = '') or (mode = '') then
@@ -1609,12 +1620,25 @@ begin
     cfgConfirmedParkColor := gcfgConfirmedColor;
     cfgCW   := gcfgCW;
     cfgSSB  := gcfgSSB;
-    cfgDATA := gcfgDATA
+    cfgDATA := gcfgDATA;
+    cfgUseBackColor  := gcfgUseBackColor;
+    cfgBckColor      := gcfgBckColor;
+    cfgeUseBackColor := gcfgeUseBackColor;
+    cfgeBckColor     := gcfgeBckColor
   finally
     LeaveCriticalSection(csDXCPref)
   end;
 
   dmDXCluster.GetSplitSpot(spot,call,freq,info);
+  isLoTW := dmData.UsesLotw(call);
+  isEQSL := dmDXCluster.UseseQSL(call);
+  // Same LoTW/eQSL background convention as the Web/Telnet tabs, and same
+  // precedence when both apply - LoTW wins.
+  if cfgeUseBackColor and isEQSL then
+    ThBckColor := cfgeBckColor;
+  if cfgUseBackColor and isLoTW then
+    ThBckColor := cfgBckColor;
+
   tmp := Pos(',',freq);
   if tmp > 0 then
     freq[tmp] := FormatSettings.DecimalSeparator;
