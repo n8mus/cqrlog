@@ -29,6 +29,18 @@ binary before overwriting it:
     sudo cp src/cqrlog /usr/bin/cqrlog && \
     md5sum /usr/bin/cqrlog src/cqrlog
 
+Whenever `src/changelog.html` changes, also deploy it — the running app
+reads `changelog.html` from `dmData.ShareDir` (`/usr/share/cqrlog/`, a
+relative `../share/cqrlog/` from the binary), a completely separate copy
+from this repo that the binary-only install above never touches. Left
+stale, `Help > Changelog` and the once-per-version auto-popup both show
+old content, and — since the "seen" flag is stamped into the user's ini
+the moment the version differs, independent of what actually got shown —
+it looks like the changelog silently failed to update rather than served
+the wrong file:
+
+    sudo cp src/changelog.html /usr/share/cqrlog/changelog.html
+
 ## Git / releases
 
 - Remote `origin` = `n8mus/cqrlog` on GitHub, default branch `master`, public.
