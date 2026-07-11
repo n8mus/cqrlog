@@ -1200,6 +1200,29 @@ uses dUtils, dData, fMain, fFreq, fQTHProfiles, fSerialPort, fClubSettings, fLoa
 
 
 
+// btnOKClick used raw StrToCurr/StrToInt on free-form edit fields: one empty
+// or locale-mismatched value (e.g. "0.1" vs "0,1") raised mid-save, so OK
+// silently refused to close the dialog. Parse tolerantly instead: accept
+// either decimal separator and fall back to the given default.
+function CurrOrDef(const s: String; def: Currency): Currency;
+var
+  t: String;
+begin
+  t := Trim(s);
+  if DefaultFormatSettings.DecimalSeparator = '.' then
+    t := StringReplace(t, ',', '.', [])
+  else
+    t := StringReplace(t, '.', DefaultFormatSettings.DecimalSeparator, []);
+  if not TryStrToCurr(t, Result) then
+    Result := def
+end;
+
+function IntOrDef(const s: String; def: Integer): Integer;
+begin
+  if not TryStrToInt(Trim(s), Result) then
+    Result := def
+end;
+
 function TfrmPreferences.WarnCheck(chk:boolean):boolean;
 var
    s:PChar;
@@ -1271,18 +1294,18 @@ begin
   cqrini.WriteString('Program', 'Port', edtPort.Text);
   cqrini.WriteString('Program', 'User', edtUser.Text);
   cqrini.WriteString('Program', 'Passwd', edtPasswd.Text);
-  cqrini.WriteFloat('Program', 'offset', StrToCurr(edtOffset.Text));
+  cqrini.WriteFloat('Program', 'offset', CurrOrDef(edtOffset.Text, 0));
   cqrini.WriteInteger('Program', 'Options', pgPreferences.ActivePageIndex);
   cqrini.WriteBool('Program', 'BandStatMHz', rgStatistics.ItemIndex = 0);
-  cqrini.WriteFloat('Program', 'GraylineOffset', StrToCurr(edtGrayLineOffset.Text));
-  cqrini.WriteFloat('Program', 'GraylineGCstep',StrToCurr(edtGCStep.Caption));
-  cqrini.WriteInteger('Program', 'GraylineGCPolarDivisor',StrToInt(edtGCPolarDivisor.Caption));
-  cqrini.WriteInteger('Program', 'GraylineGCLineWidth',StrToInt(edtGCLineWidth.Caption));
+  cqrini.WriteFloat('Program', 'GraylineOffset', CurrOrDef(edtGrayLineOffset.Text, 0));
+  cqrini.WriteFloat('Program', 'GraylineGCstep',CurrOrDef(edtGCStep.Caption, 0.1));
+  cqrini.WriteInteger('Program', 'GraylineGCPolarDivisor',IntOrDef(edtGCPolarDivisor.Caption, 10));
+  cqrini.WriteInteger('Program', 'GraylineGCLineWidth',IntOrDef(edtGCLineWidth.Caption, 2));
   cqrini.WriteString('Program', 'GraylineGCLineSPColor', ColorToString(btnSPColor.ButtonColor));
   cqrini.WriteString('Program', 'GraylineGCLineLPColor', ColorToString(btnLPColor.ButtonColor));
   cqrini.WriteString('Program', 'GraylineGCLineBEColor', ColorToString(btnBPColor.ButtonColor));
-  cqrini.WriteInteger('Program', 'GraylineGBeamLineWidth',StrToInt(edtGCBeamWidth.Caption));
-  cqrini.WriteInteger('Program', 'GraylineGBeamLineLength',StrToInt(edtGCBeamLength.Caption));
+  cqrini.WriteInteger('Program', 'GraylineGBeamLineWidth',IntOrDef(edtGCBeamWidth.Caption, 2));
+  cqrini.WriteInteger('Program', 'GraylineGBeamLineLength',IntOrDef(edtGCBeamLength.Caption, 1500));
 
   if  edtWebBrowser.Text = '' then  edtWebBrowser.Text:= dmUtils.MyDefaultBrowser; //may not be empty string
   cqrini.WriteString('Program', 'WebBrowser', edtWebBrowser.Text);
@@ -1292,7 +1315,7 @@ begin
   cqrini.WriteBool('Program', 'SunUTC', chkSunUTC.Checked);
   cqrini.WriteBool('Program', 'CheckQSLTabs', chkNewQSLTables.Checked);
   cqrini.WriteBool('Program', 'CheckDOKTabs', chkNewDOKTables.Checked);
-  cqrini.WriteFloat('Program', 'SunOffset', StrToCurr(edtSunOffset.Text));
+  cqrini.WriteFloat('Program', 'SunOffset', CurrOrDef(edtSunOffset.Text, 0));
   cqrini.WriteBool('Program', 'SysUTC', chkSysUTC.Checked);
   cqrini.WriteBool('Program','ShowMiles',chkShowMiles.Checked);
   cqrini.WriteBool('Program', 'QSODiffColor', chkQSOColor.Checked);
@@ -1521,9 +1544,9 @@ begin
   cqrini.WriteInteger('BandMap', 'NewQSOColor', cmbQSOBandColor.Selected);
   cqrini.WriteBool('BandMap', 'in_kHz', chkBandMapkHz.Checked);
   cqrini.WriteBool('BandMap', 'Save', chkSaveBandMap.Checked);
-  cqrini.WriteInteger('BandMap', 'FirstAging', StrToInt(edtFirst.Text));
-  cqrini.WriteInteger('BandMap', 'SecondAging', StrToInt(edtSecond.Text));
-  cqrini.WriteInteger('BandMap', 'Disep', StrToInt(edtDisep.Text));
+  cqrini.WriteInteger('BandMap', 'FirstAging', IntOrDef(edtFirst.Text, 5));
+  cqrini.WriteInteger('BandMap', 'SecondAging', IntOrDef(edtSecond.Text, 8));
+  cqrini.WriteInteger('BandMap', 'Disep', IntOrDef(edtDisep.Text, 12));
   cqrini.WriteInteger('BandMap', 'ClusterColor', cmbFrmDXCColor.Selected);
   cqrini.WriteBool('BandMap', 'OnlyActiveBand', chkShowActiveBand.Checked);
   cqrini.WriteBool('BandMap', 'OnlyActiveMode', chkShowActiveMode.Checked);
@@ -1734,8 +1757,8 @@ begin
 
   fraExportPref1.SaveExportPref;
 
-  dmUtils.TimeOffset := StrToCurr(edtOffset.Text);
-  dmUtils.GrayLineOffset := StrToCurr(edtGrayLineOffset.Text);
+  dmUtils.TimeOffset := CurrOrDef(edtOffset.Text, 0);
+  dmUtils.GrayLineOffset := CurrOrDef(edtGrayLineOffset.Text, 0);
   dmUtils.SysUTC := chkSysUTC.Checked;
 
   frmNewQSO.CalculateLocalSunRiseSunSet;
@@ -3924,8 +3947,8 @@ Begin
   cqrini.WriteString('CW'+nr, 'cw_hex', edtCWDHex.Text);
 
   cqrini.WriteString('CW'+nr,'K3NGPort',edtK3NPort.Text);
-  cqrini.WriteInteger('CW'+nr,'K3NGSerSpeed',StrToInt(edtK3NSerSpeed.Text));
-  cqrini.WriteInteger('CW'+nr,'K3NGSpeed',StrToInt(edtK3NSpeed.Text));
+  cqrini.WriteInteger('CW'+nr,'K3NGSerSpeed',IntOrDef(edtK3NSerSpeed.Text, 115200));
+  cqrini.WriteInteger('CW'+nr,'K3NGSpeed',IntOrDef(edtK3NSpeed.Text, 30));
   cqrini.WriteInteger('CW'+nr, 'K3NG_min', edtK3NMinSpeed.Value);
   cqrini.WriteInteger('CW'+nr, 'K3NG_max', edtK3NMaxSpeed.Value);
   cqrini.WriteString('CW'+nr, 'K3NG_hex', edtK3NHex.Text);
