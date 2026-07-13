@@ -728,6 +728,8 @@ type
     WsjtxSock             : TUDPBlockSocket; //receive socket
     WsjtxSockS            : TUDPBlockSocket; //multicast send socket
     ADIFSock              : TUDPBlockSocket;
+    ConsoleSock           : TUDPBlockSocket; //always-on console log bridge (UDP ADIF)
+    tmrConsole            : TTimer;          //polls ConsoleSock; runs with any remote mode
 
     WsjtxMode             : String;    //Moved from private
     WsjtxBand             : String;
@@ -755,6 +757,15 @@ type
 
     procedure DisableRemoteMode;   //Moved from private
     procedure SaveRemote;
+    //Console log bridge: the SDR console sends finished QSOs as headerless
+    //ADIF UDP datagrams to 127.0.0.1:<console/port, default 2334>. Unlike the
+    //remote modes this listener is ALWAYS on (remote modes are mutually
+    //exclusive; this must coexist with fldigi remote during digi sessions).
+    //Safe because all timers share the GUI thread: each datagram is a full
+    //fill-form-then-save within one tick, never interleaved with a remote's.
+    procedure StartConsoleBridge;
+    procedure tmrConsoleTimer(Sender: TObject);
+    procedure ProcessAdifSocket(Sock : TUDPBlockSocket; FromConsole : Boolean);
     procedure GetCallInfo(callTOinfo,mode,rsts:string);    //used with wsjtx remote
 
     procedure OnBandMapClick(Sender:TObject;Call,Mode : String;Freq:Currency);
@@ -2127,6 +2138,26 @@ begin
 end;
 
 procedure TfrmNewQSO.tmrADIFTimer(Sender: TObject);
+begin
+  tmrADIF.Enabled := false;
+  try
+    ProcessAdifSocket(ADIFSock, False);
+  finally
+    tmrADIF.Enabled := true;
+  end;
+end;
+
+procedure TfrmNewQSO.tmrConsoleTimer(Sender: TObject);
+begin
+  tmrConsole.Enabled := false;
+  try
+    ProcessAdifSocket(ConsoleSock, True);
+  finally
+    tmrConsole.Enabled := true;
+  end;
+end;
+
+procedure TfrmNewQSO.ProcessAdifSocket(Sock : TUDPBlockSocket; FromConsole : Boolean);
 var
   Buf, buf2,
   prik,data     :string;
@@ -2135,19 +2166,21 @@ var
   a,b,l         :integer;
   fixed         :Boolean;
   mode,submode  :string;
+  oldOffline    :Boolean;
 
 begin
   fixed:=false;
-  tmrADIF.Enabled:=false;
   chkDuplicates:=false;
-  if ADIFsock.WaitingData > 0 then
+  if Sock = nil then exit;
+  oldOffline := cbOffline.Checked;
+  if Sock.WaitingData > 0 then
   Begin
    if dmData.DebugLevel>=1 then Writeln('rmtADIF has data. JS8CALL mode is now ',IsJS8Callrmt);
-   while ADIFsock.WaitingData > 0 do     //do all pending messages in one go
+   while Sock.WaitingData > 0 do     //do all pending messages in one go
     begin
-      Buf := trim(ADIFsock.RecvPacket(50));    //Read all data waitingtimeout 50ms
+      Buf := trim(Sock.RecvPacket(50));    //Read all data waitingtimeout 50ms
       if dmData.DebugLevel>=1 then Writeln('rmtADIF read data');
-      if ADIFSock.lasterror=0 then
+      if Sock.lasterror=0 then
        begin
          //check data.
          //N1MM contact info
@@ -2155,14 +2188,14 @@ begin
            and(pos('<APP>N1MM',Uppercase(Buf))>0 ) then
                                                  Begin
                                                   Buf:=dmUtils.FromN1MMToAdif(Buf);
-                                                  lblCall.Caption := 'rmt ADIF N1MM+';
+                                                  if not FromConsole then lblCall.Caption := 'rmt ADIF N1MM+';
                                                   fixed:=true;
                                                  end;
          //if JS8CALL JSON with ADIF inside
           if (pos('"LOG.QSO","value":"',Buf)>0) and (pos('"}',Buf)>0)  then
                                                 Begin
                                                  Buf:=dmUtils.FromJS8CALLToAdif(Buf);
-                                                 lblCall.Caption := 'rmt ADIF JS8CALL';
+                                                 if not FromConsole then lblCall.Caption := 'rmt ADIF JS8CALL';
                                                  IsJS8Callrmt :=true;
                                                  fixed:=true;
                                                 end;
@@ -2173,7 +2206,7 @@ begin
             and (not IsJS8Callrmt)     then
                                                Begin
                                                  Buf:='<ADIF_VER:5>3.1.0<EOH>'+Buf;
-                                                 lblCall.Caption := 'rmt ADIF hdless';
+                                                 if not FromConsole then lblCall.Caption := 'rmt ADIF hdless';
                                                  fixed:=true;
                                                 end;
 
@@ -2186,11 +2219,10 @@ begin
           and (pos('<EOR',uppercase (Buf))>0) ) then //we have at least one full record
             Begin  //remove header
                Buf:=copy(Buf,pos('<EOH>',uppercase (Buf))+5,length(Buf));
-               if not fixed then lblCall.Caption := 'REMOTE ADIF';
+               if (not fixed) and (not FromConsole) then lblCall.Caption := 'REMOTE ADIF';
             end
            else
-            Begin      //nothing to do
-              tmrADIF.Enabled:=true;
+            Begin      //nothing to do (timer re-enabled by the caller)
               exit;
             end;
 
@@ -2206,6 +2238,9 @@ begin
               if dmData.DebugLevel>=1 then writeln('Handle qso record: ',Buf);
               mode:='';
               submode:='';
+              //Console records carry their own date/time; offline mode makes
+              //btnSave honor them instead of restamping with "now".
+              if FromConsole then cbOffline.Checked := True;
               //this is fake as call info(qslmgr) needs date. We use current date if call tag comes before qso_date tag
               //qso_date will then replace this
               edtDate.Text := FormatDateTime('YYYY-MM-DD',now());
@@ -2248,6 +2283,9 @@ begin
                                         'QTH_INTL','QTH'       : if (data<>edtQTH.Text) and (data<>'') then edtQTH.Text := data;
                                     'COMMENT_INTL','COMMENT'   : if (data<>edtRemQSO.Text) and (data<>'') then edtRemQSO.Text := data;
                                                    'IOTA'      : if cmbIOTA.Text = '' then cmbIOTA.Text := data;
+                                                   //POTA park refs (legacy SIG tags, same convention as ADIF import)
+                                                   'SIG_INFO'  : edtPotaHuntedRef.Text := UpperCase(data);
+                                                   'MY_SIG_INFO': edtPotaRef.Text := UpperCase(data);
                                                    'STATE'     : if edtState.Text='' then edtState.Text := data;
                                                    'CQZ'       : edtWaz.Text := data;
                                                    'ITUZ'      : edtITU.Text := data;
@@ -2287,7 +2325,29 @@ begin
        end; //lasterror=0
     end;  // while waiting data
   end;  //if waiting data
-  tmrADIF.Enabled:=true;
+  if FromConsole then cbOffline.Checked := oldOffline;
+end;
+
+procedure TfrmNewQSO.StartConsoleBridge;
+begin
+  if ConsoleSock <> nil then exit;                    //already running
+  if not cqrini.ReadBool('console','bridge',True) then exit;
+  ConsoleSock := TUDPBlockSocket.Create;
+  ConsoleSock.EnableReuse(true);
+  ConsoleSock.Bind('127.0.0.1', cqrini.ReadString('console','port','2334'));
+  if ConsoleSock.LastError <> 0 then
+  begin
+    if dmData.DebugLevel>=1 then Writeln('Console bridge: UDP bind failed');
+    FreeAndNil(ConsoleSock);
+    exit;
+  end;
+  tmrConsole := TTimer.Create(Self);
+  tmrConsole.Interval := 300;
+  tmrConsole.OnTimer  := @tmrConsoleTimer;
+  tmrConsole.Enabled  := True;
+  if dmData.DebugLevel>=1 then
+    Writeln('Console bridge listening on UDP 127.0.0.1:',
+            cqrini.ReadString('console','port','2334'));
 end;
 
 procedure TfrmNewQSO.tmrRadioTimer(Sender: TObject);
@@ -4189,6 +4249,8 @@ end;
 
 procedure TfrmNewQSO.FormClose(Sender: TObject; var CloseAction: TCloseAction);
 begin
+  if tmrConsole <> nil then tmrConsole.Enabled := False;
+  if ConsoleSock <> nil then FreeAndNil(ConsoleSock);
   btnCancel.Caption:=' Closing... ';
   btnCancel.Font.Color:=clRed;
   btnCancel.Font.Style:=[fsBold];
@@ -7967,6 +8029,7 @@ Begin
     if StartUpCount = 10 then
      Begin
        inc(StartUpCount); //to be 11
+       StartConsoleBridge; //always-on SDR-console log listener (UDP 2334)
        if not Application.HasOption('r','remote') then exit
         else
          Begin
