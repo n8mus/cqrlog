@@ -87,6 +87,18 @@ the wrong file:
   database's `db_version.nr` before picking a new version number — it may
   already be ahead of what's in this git history from an earlier untracked
   build.
+- **Online-log upload engine** (since 5ace500): parallel — the main
+  thread pre-renders per-service work lists (`dmLogUpload.BuildUploadWork`;
+  ALL DB access stays on the main thread, the shared connection is not
+  thread-safe), one HTTP-only `TUploadThread` per service, results
+  marshaled back via `Synchronize`. `upload_status` rows are per-service
+  bookmarks into `log_changes`; both `MarkAsUploaded` variants self-heal a
+  missing service row (qrz.com was never seeded upstream) and the bulk
+  mark is scoped by logname (upstream stomped all services' pointers).
+  The ledger collapse runs only after a clean all-enabled-services round.
+  QRZ deletes need the LOGID captured at insert time — deleting a QSO
+  while its upload round is still in flight breaks that chain (known
+  race; let rounds finish before deleting).
 - **POTA fields**: `pota_ref` (park *you* activated during that QSO) and
   `pota_hunted_ref` (park the *other station* was in) on `cqrlog_main`, also
   selected by the `view_cqrlog_main_by_qsodate*` views. ADIF uses the legacy
