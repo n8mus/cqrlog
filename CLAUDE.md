@@ -99,6 +99,14 @@ the wrong file:
   QRZ deletes need the LOGID captured at insert time — deleting a QSO
   while its upload round is still in flight breaks that chain (known
   race; let rounds finish before deleting).
+- **Auto-LoTW** (7655f9b): `AutoLotwQsoSaved` (fLoTWExport) is kicked
+  from `UploadAllQSOOnline` on every save; quiet-period TTimer (120 s)
+  batches unsigned QSOs, background thread runs the operator's tqsl
+  template + `-u -a compliant -q` via `/bin/sh -c`, success (exit 0/8/9)
+  marks `lotw_qsls='Y'` and refreshes the grid. Enable checkbox is
+  created at RUNTIME in the LoTW export dialog (no .lfm edit). LoTW is
+  not in the log_changes ledger. NOTE: LoTW's Activity page lists only
+  PROCESSED files — a queued upload is invisible there for minutes-hours.
 - **POTA fields**: `pota_ref` (park *you* activated during that QSO) and
   `pota_hunted_ref` (park the *other station* was in) on `cqrlog_main`, also
   selected by the `view_cqrlog_main_by_qsodate*` views. ADIF uses the legacy
