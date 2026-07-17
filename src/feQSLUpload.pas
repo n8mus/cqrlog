@@ -17,6 +17,7 @@ type
     btnUpload : TButton;
     btnClose : TButton;
     edtQTH : TEdit;
+    chkAutoUp : TCheckBox;   //runtime: auto-upload enable (LoTW/eAutoUpload)
     grbWebExport : TGroupBox;
     GroupBox1 : TGroupBox;
     gbProgress : TGroupBox;
@@ -30,6 +31,7 @@ type
     procedure btnUploadClick(Sender : TObject);
     procedure FormClose(Sender : TObject; var CloseAction : TCloseAction);
     procedure FormShow(Sender : TObject);
+    procedure chkAutoUpChange(Sender: TObject);
     procedure mStatChange(Sender: TObject);
   private
     FileSize     : Int64;
@@ -50,10 +52,24 @@ end;
 var
   frmeQSLUpload : TfrmeQSLUpload;
 
+//Auto-eQSL: call after every QSO save. When LoTW/eAutoUpload is on,
+//unsent QSOs (eqsl_qslsdate null) are batched in a quiet period and
+//POSTed to eQSL's ImportADIF.cfm in a background thread, then marked
+//exactly like the manual upload. eQSL has no delete API: mistakes
+//removed after upload need manual cleanup on their site — the quiet
+//period is the protection window.
+procedure AutoEqslQsoSaved;
+
 implementation
 {$R *.lfm}
 
-uses dUtils,dData,uMyIni, fPreferences, uVersion, dLogUpload, dSatellite;
+uses dUtils,dData,uMyIni, fPreferences, uVersion, dLogUpload, dSatellite,
+     sqldb, fLogUploadStatus, fMain;
+
+procedure TfrmeQSLUpload.chkAutoUpChange(Sender: TObject);
+begin
+  cqrini.WriteBool('LoTW','eAutoUpload',chkAutoUp.Checked)
+end;
 
 procedure TfrmeQSLUpload.SockCallBack(Sender: TObject; Reason:  THookSocketReason; const  Value: string);
 begin
@@ -213,6 +229,16 @@ end;
 
 procedure TfrmeQSLUpload.FormShow(Sender : TObject);
 begin
+  if chkAutoUp = nil then
+  begin
+    chkAutoUp := TCheckBox.Create(Self);
+    chkAutoUp.Parent  := Self;
+    chkAutoUp.Align   := alBottom;
+    chkAutoUp.Caption := 'Upload new QSOs to eQSL automatically '+
+                         '(background, ~2 min after logging)';
+    chkAutoUp.Checked := cqrini.ReadBool('LoTW','eAutoUpload',False);
+    chkAutoUp.OnChange := @chkAutoUpChange
+  end;
   dmUtils.LoadWindowPos(Self);
   edtQTH.Text := cqrini.ReadString('eQSL','QTH','');
   if dmData.IsFilter then
@@ -438,6 +464,319 @@ begin
     m.Free
   end
 end;
+
+
+{ ------------------------------------------------------------------ }
+{ Auto-eQSL engine (mirror of the auto-LoTW pattern)                  }
+{ ------------------------------------------------------------------ }
+
+type
+  TAutoEqslThread = class(TThread)
+  private
+    fFile : String;
+    fIds  : TStringList;   //owned
+    fOk   : Boolean;
+    fTail : String;
+    procedure SyncDone;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const AFile : String; AIds : TStringList);
+    destructor Destroy; override;
+  end;
+
+  TAutoEqsl = class
+  private
+    tmr  : TTimer;
+    busy : Boolean;
+    procedure OnTimer(Sender : TObject);
+    procedure StartBatch;
+  public
+    constructor Create;
+    procedure Kick;
+    procedure BatchFinished;
+  end;
+
+var
+  AutoEqsl : TAutoEqsl = nil;
+
+const
+  C_AUTOEQSL_FILE = 'autoeqsl.adi';
+  C_AUTOEQSL_CAP  = 500;
+
+procedure AutoEqslStatus(const msg : String);
+begin
+  if dmData.DebugLevel >= 1 then Writeln('AutoEQSL: ',msg);
+  if (frmLogUploadStatus <> nil) and frmLogUploadStatus.Showing then
+    frmLogUploadStatus.ServiceLineRaw('eQSL: '+msg, clOlive)
+end;
+
+constructor TAutoEqslThread.Create(const AFile : String; AIds : TStringList);
+begin
+  inherited Create(True);
+  fFile := AFile;
+  fIds  := AIds;
+  FreeOnTerminate := True
+end;
+
+destructor TAutoEqslThread.Destroy;
+begin
+  FreeAndNil(fIds);
+  inherited Destroy
+end;
+
+procedure TAutoEqslThread.Execute;
+const
+  CRLF = #$0d#$0a;
+var
+  HTTP  : THTTPSend;
+  m     : TMemoryStream;
+  l     : TStringList;
+  Bound : String;
+  s     : String;
+begin
+  fOk := False;
+  HTTP := THTTPSend.Create;
+  m    := TMemoryStream.Create;
+  l    := TStringList.Create;
+  try
+    try
+      m.LoadFromFile(fFile);
+      Bound := IntToHex(Random(MaxInt), 8) + '_Synapse_boundary';
+      HTTP.ProxyHost := cqrini.ReadString('Program','Proxy','');
+      HTTP.ProxyPort := cqrini.ReadString('Program','Port','');
+      HTTP.ProxyUser := cqrini.ReadString('Program','User','');
+      HTTP.ProxyPass := cqrini.ReadString('Program','Passwd','');
+      s := '--' + Bound + CRLF;
+      s := s + 'content-disposition: form-data; name="Filename";';
+      s := s + ' filename="' + ExtractFileName(fFile) +'"' + CRLF;
+      s := s + 'Content-Type: Application/octet-string' + CRLF + CRLF;
+      WriteStrToStream(HTTP.Document, s);
+      HTTP.Document.CopyFrom(m, 0);
+      s := CRLF + '--' + Bound + '--' + CRLF;
+      WriteStrToStream(HTTP.Document, s);
+      HTTP.MimeType := 'multipart/form-data; boundary=' + Bound;
+      HTTP.Timeout  := 100000;   //eQSL: ~1000 QSO/min; our cap fits easily
+      if HTTP.HTTPMethod('POST','https://www.eqsl.cc/qslcard/ImportADIF.cfm') then
+      begin
+        l.LoadFromStream(HTTP.Document);
+        //Upstream heuristic: any 'ERROR' in the body = failure.
+        fOk := Pos('ERROR',UpCase(l.Text)) = 0;
+        fTail := Trim(dmUtils.StripHTML(l.Text));
+        fTail := Trim(StringReplace(fTail, LineEnding, ' ', [rfReplaceAll]));
+        if Length(fTail) > 120 then fTail := copy(fTail,1,120)+'...'
+      end
+      else
+        fTail := 'connection failed: '+HTTP.Sock.LastErrorDesc
+    except
+      on E : Exception do
+        fTail := E.Message
+    end
+  finally
+    l.Free;
+    m.Free;
+    HTTP.Free
+  end;
+  Synchronize(@SyncDone)
+end;
+
+procedure TAutoEqslThread.SyncDone;
+var
+  q    : TSQLQuery;
+  tr   : TSQLTransaction;
+  i    : Integer;
+  date : String;
+begin
+  if fOk then
+  begin
+    date := FormatDateTime('yyyy-mm-dd',now);
+    q  := TSQLQuery.Create(nil);
+    tr := TSQLTransaction.Create(nil);
+    try
+      tr.DataBase   := dmData.MainCon;
+      q.DataBase    := dmData.MainCon;
+      q.Transaction := tr;
+      tr.StartTransaction;
+      //status marks must not churn the online-log ledger (see auto-LoTW)
+      q.SQL.Text := 'SET @cqr_qsl_mark=1';
+      q.ExecSQL;
+      for i := 0 to fIds.Count-1 do
+      begin
+        q.SQL.Text := 'update cqrlog_main set eqsl_qsl_sent='+QuotedStr('Y')+
+                      ', eqsl_qslsdate='+QuotedStr(date)+
+                      ' where id_cqrlog_main='+fIds[i];
+        q.ExecSQL
+      end;
+      q.SQL.Text := 'SET @cqr_qsl_mark=NULL';
+      q.ExecSQL;
+      tr.Commit;
+      AutoEqslStatus(IntToStr(fIds.Count)+' QSO uploaded ('+fTail+')');
+      if frmMain <> nil then
+        frmMain.acRefreshExecute(nil)
+    finally
+      q.Free;
+      tr.Free
+    end
+  end
+  else
+    AutoEqslStatus('upload FAILED: '+fTail+' - QSOs stay queued for the next batch');
+  if AutoEqsl <> nil then
+    AutoEqsl.BatchFinished
+end;
+
+constructor TAutoEqsl.Create;
+begin
+  inherited Create;
+  tmr := TTimer.Create(nil);
+  tmr.Enabled  := False;
+  tmr.Interval := 1000 * cqrini.ReadInteger('LoTW','eAutoDelaySec',120);
+  tmr.OnTimer  := @OnTimer
+end;
+
+procedure TAutoEqsl.Kick;
+begin
+  tmr.Interval := 1000 * cqrini.ReadInteger('LoTW','eAutoDelaySec',120);
+  tmr.Enabled := False;
+  tmr.Enabled := True
+end;
+
+procedure TAutoEqsl.BatchFinished;
+begin
+  busy := False
+end;
+
+procedure TAutoEqsl.OnTimer(Sender : TObject);
+begin
+  tmr.Enabled := False;
+  if busy then
+  begin
+    tmr.Enabled := True;
+    exit
+  end;
+  StartBatch
+end;
+
+procedure TAutoEqsl.StartBatch;
+var
+  q        : TSQLQuery;
+  tr       : TSQLTransaction;
+  f        : TextFile;
+  ids      : TStringList;
+  FileName : String;
+  qthNick  : String;
+  tmp,
+  ModeOut,
+  SubmodeOut : String;
+begin
+  if (cqrini.ReadString('LoTW','eQSLName','') = '') or
+     (cqrini.ReadString('LoTW','eQSLPass','') = '') then
+  begin
+    AutoEqslStatus('eQSL user/password not set - see Preferences');
+    exit
+  end;
+  qthNick := cqrini.ReadString('eQSL','QTH','');
+  if qthNick = '' then
+  begin
+    AutoEqslStatus('QTH nickname not set - open the eQSL upload window once');
+    exit
+  end;
+
+  FileName := dmUtils.GetHomeDirectory+'.config/cqrlog/'+C_AUTOEQSL_FILE;
+  ids := TStringList.Create;
+  q   := TSQLQuery.Create(nil);
+  tr  := TSQLTransaction.Create(nil);
+  try
+    tr.DataBase   := dmData.MainCon;
+    q.DataBase    := dmData.MainCon;
+    q.Transaction := tr;
+    tr.StartTransaction;
+    q.SQL.Text := 'select * from cqrlog_main where eqsl_qslsdate is null'+
+                  ' order by id_cqrlog_main limit '+IntToStr(C_AUTOEQSL_CAP+1);
+    q.Open;
+    if q.Eof then exit;
+
+    AssignFile(f,FileName);
+    {$i-} ReWrite(f); {$i+}
+    if IOResult <> 0 then
+    begin
+      AutoEqslStatus('cannot write '+FileName);
+      exit
+    end;
+    Writeln(f,'<ADIF_VER:5>3.1.0');
+    Writeln(f,'auto-eQSL export from CQRLOG');
+    Writeln(f,dmUtils.StringToADIF('<EQSL_USER',cqrini.ReadString('LoTW','eQSLName','')));
+    Writeln(f,dmUtils.StringToADIF('<EQSL_PSWD',cqrini.ReadString('LoTW','eQSLPass','')));
+    Writeln(f,'<EOH>');
+    while not q.Eof do
+    begin
+      if ids.Count >= C_AUTOEQSL_CAP then
+      begin
+        CloseFile(f);
+        AutoEqslStatus('more than '+IntToStr(C_AUTOEQSL_CAP)+
+                       ' unsent QSOs - use the eQSL upload window for the backlog');
+        exit
+      end;
+      tmp := q.FieldByName('qsodate').AsString;
+      Writeln(f,dmUtils.StringToADIF('<QSO_DATE',copy(tmp,1,4)+copy(tmp,6,2)+copy(tmp,9,2)));
+      tmp := q.FieldByName('time_on').AsString;
+      Writeln(f,dmUtils.StringToADIF('<TIME_ON',copy(tmp,1,2)+copy(tmp,4,2)));
+      Writeln(f,dmUtils.StringToADIF('<CALL',dmUtils.RemoveSpaces(q.FieldByName('callsign').AsString)));
+      dmUtils.ModeFromCqr(q.FieldByName('mode').AsString,0,dmData.DebugLevel >= 1,ModeOut,SubmodeOut);
+      Writeln(f,dmUtils.StringToADIF('<MODE',ModeOut));
+      if SubmodeOut <> '' then
+        Writeln(f,dmUtils.StringToADIF('<SUBMODE',SubmodeOut));
+      Writeln(f,dmUtils.StringToADIF('<BAND',q.FieldByName('band').AsString));
+      Writeln(f,dmUtils.StringToADIF('<FREQ',q.FieldByName('freq').AsString));
+      Writeln(f,dmUtils.StringToADIF('<RST_SENT',q.FieldByName('rst_s').AsString));
+      Writeln(f,dmUtils.StringToADIF('<RST_RCVD',q.FieldByName('rst_r').AsString));
+      if (q.FieldByName('prop_mode').AsString <> '') then
+      begin
+        Writeln(f,dmUtils.StringToADIF('<PROP_MODE',q.FieldByName('prop_mode').AsString));
+        if (q.FieldByName('prop_mode').AsString = 'SAT') then
+        begin
+          tmp := dmSatellite.GetSatMode(q.FieldByName('freq').AsString,
+                                        q.FieldByName('rxfreq').AsString);
+          if (tmp <> '') then
+            Writeln(f,dmUtils.StringToADIF('<SAT_MODE',tmp))
+        end
+      end;
+      if (q.FieldByName('satellite').AsString <> '') then
+        Writeln(f,dmUtils.StringToADIF('<SAT_NAME',q.FieldByName('satellite').AsString));
+      if (q.FieldByName('rxfreq').AsString <> '') then
+        Writeln(f,dmUtils.StringToADIF('<FREQ_RX',q.FieldByName('rxfreq').AsString));
+      if (q.FieldByName('remarks').AsString <> '') and cqrini.ReadBool('LoTW','ExpComment',True) then
+      begin
+        Writeln(f,dmUtils.StringToADIF('<COMMENT',q.FieldByName('remarks').AsString));
+        Writeln(f,dmUtils.StringToADIF('<QSLMSG',q.FieldByName('remarks').AsString))
+      end;
+      Writeln(f,dmUtils.StringToADIF('<APP_EQSL_QTH_NICKNAME',qthNick));
+      Writeln(f,'<EOR>');
+      ids.Add(q.FieldByName('id_cqrlog_main').AsString);
+      q.Next
+    end;
+    CloseFile(f);
+
+    AutoEqslStatus('uploading '+IntToStr(ids.Count)+' QSO ...');
+    busy := True;
+    TAutoEqslThread.Create(FileName, ids).Start;
+    ids := nil
+  finally
+    q.Close;
+    if tr.Active then tr.RollBack;
+    q.Free;
+    tr.Free;
+    ids.Free
+  end
+end;
+
+procedure AutoEqslQsoSaved;
+begin
+  if not cqrini.ReadBool('LoTW','eAutoUpload',False) then exit;
+  if AutoEqsl = nil then
+    AutoEqsl := TAutoEqsl.Create;
+  AutoEqsl.Kick
+end;
+
 
 end.
 

@@ -185,8 +185,13 @@ begin
   dmLogUpload.Q2.Close;
   if dmLogUpload.trQ2.Active then dmLogUpload.trQ2.RollBack;
   dmLogUpload.trQ2.StartTransaction;
+  //logid bookkeeping must not churn the ledger (see auto-LoTW note)
+  dmLogUpload.Q2.SQL.Text := 'SET @cqr_qsl_mark=1';
+  dmLogUpload.Q2.ExecSQL;
   dmLogUpload.Q2.SQL.Text := 'update cqrlog_main set qrz_logid='+''''+mQrzLogId+''''+
                              ' where id_cqrlog_main='+mQrzMainId;
+  dmLogUpload.Q2.ExecSQL;
+  dmLogUpload.Q2.SQL.Text := 'SET @cqr_qsl_mark=NULL';
   dmLogUpload.Q2.ExecSQL;
   dmLogUpload.trQ2.Commit;
   if dmData.DebugLevel >= 1 then

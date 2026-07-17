@@ -712,6 +712,12 @@ begin
       q.DataBase    := dmData.MainCon;
       q.Transaction := tr;
       tr.StartTransaction;
+      //QSL-status marks must not churn the online-log ledger: the update
+      //trigger skips queueing while @cqr_qsl_mark is set (live-found: one
+      //auto-LoTW batch re-queued every marked QSO as an UPDATE for
+      //ClubLog/HRD/QRZ).
+      q.SQL.Text := 'SET @cqr_qsl_mark=1';
+      q.ExecSQL;
       for i := 0 to fIds.Count-1 do
       begin
         q.SQL.Text := 'update cqrlog_main set lotw_qsls='+QuotedStr('Y')+
@@ -719,6 +725,8 @@ begin
                       ' where id_cqrlog_main='+fIds[i];
         q.ExecSQL
       end;
+      q.SQL.Text := 'SET @cqr_qsl_mark=NULL';
+      q.ExecSQL;
       tr.Commit;
       AutoLotwStatus(IntToStr(fIds.Count)+' QSO signed and uploaded ('+fTail+')');
       //The manual export refreshes the grids after marking; without this

@@ -857,7 +857,7 @@ implementation
 
 { TfrmNewQSO }
 
-uses dUtils, fChangeLocator, fChangeOperator, dDXCC, dDXCluster, dData, fMain, fSelectDXCC, fGrayline, fLoTWExport,
+uses dUtils, fChangeLocator, fChangeOperator, dDXCC, dDXCluster, dData, fMain, fSelectDXCC, fGrayline, fLoTWExport, feQSLUpload,
      fTRXControl, fPreferences, fSplash, fDXCluster, fDXCCStat,fQSLMgr, fSendSpot,
      fQSODetails, fWAZITUStat, fDOKStat, fIOTAStat, fGraphStat, fImportProgress, fBandMap,
      fLongNote, fRefCall, fKeyTexts, fCWType, fExportProgress, fPropagation, fCallAttachment,
@@ -7975,6 +7975,7 @@ end;
 procedure TfrmNewQSO.UploadAllQSOOnline;
 begin
   AutoLotwQsoSaved;   //batched background sign+upload (LoTW/AutoUpload)
+  AutoEqslQsoSaved;   //batched background eQSL upload (LoTW/eAutoUpload)
   if not tmrUploadAll.Enabled then
   begin
     UploadAll            := False;
