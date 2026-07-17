@@ -107,6 +107,15 @@ the wrong file:
   created at RUNTIME in the LoTW export dialog (no .lfm edit). LoTW is
   not in the log_changes ledger. NOTE: LoTW's Activity page lists only
   PROCESSED files — a queued upload is invisible there for minutes-hours.
+- **Auto-eQSL** (9f324cb): mirror of auto-LoTW in feQSLUpload
+  (LoTW/eAutoUpload, quiet-period batch, POST to ImportADIF.cfm). CRITICAL
+  invariant: QSL-status marking UPDATEs (lotw/eqsl marks, qrz_logid) must
+  run with session flag `@cqr_qsl_mark=1` set — the cqrlog_main_bu trigger
+  (INSERT..SELECT..WHERE @cqr_qsl_mark IS NULL) skips ledger-queueing
+  while it's set. Without the flag one status batch re-queues every QSO
+  as a full UPDATE for all services. The trigger fix lives in dData.lfm
+  SOURCE because preferences saves re-run the trigger script and wipe
+  DB-only fixes (this exact bug had been fixed live once and came back).
 - **POTA fields**: `pota_ref` (park *you* activated during that QSO) and
   `pota_hunted_ref` (park the *other station* was in) on `cqrlog_main`, also
   selected by the `view_cqrlog_main_by_qsodate*` views. ADIF uses the legacy
