@@ -49,7 +49,9 @@ type
     tabLocalFile: TTabSheet;
     tabUpload: TTabSheet;
     tmrLoTW: TTimer;
+    chkAutoUp : TCheckBox;   //runtime: auto-upload enable (LoTW/AutoUpload)
     procedure FormCreate(Sender: TObject);
+    procedure chkAutoUpChange(Sender: TObject);
     procedure btnExportSignClick(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
     procedure FormShow(Sender: TObject);
@@ -77,12 +79,20 @@ type
 var
   frmLoTWExport: TfrmLoTWExport;
 
+//Auto-LoTW (GridTracker-style): call after every QSO save. When
+//LoTW/AutoUpload is enabled, unsigned QSOs are batched (a quiet period
+//after the last save), exported, signed and uploaded with the operator's
+//existing tqsl template plus -u, in a background thread; tqsl's own
+//duplicate detection makes retries harmless. Successful batches are
+//marked lotw_qsls='Y' exactly like the manual export.
+procedure AutoLotwQsoSaved;
+
 implementation
 {$R *.lfm}
 
 { TfrmLoTWExport }
 
-uses dData, dUtils, uMyIni, dLogUpload;
+uses dData, dUtils, uMyIni, dLogUpload, sqldb, fLogUploadStatus, StrUtils, fMain;
 
 procedure TfrmLoTWExport.btnFileBrowseClick(Sender: TObject);
 begin
@@ -394,7 +404,21 @@ end;
 
 procedure TfrmLoTWExport.FormCreate(Sender: TObject);
 begin
-  AProcess := TProcess.Create(nil)
+  AProcess := TProcess.Create(nil);
+  //Auto-LoTW toggle, created at runtime (no .lfm surgery): batched
+  //background sign+upload after every logged QSO.
+  chkAutoUp := TCheckBox.Create(Self);
+  chkAutoUp.Parent  := tabUpload;
+  chkAutoUp.Align   := alBottom;
+  chkAutoUp.Caption := 'Upload new QSOs to LoTW automatically '+
+                       '(background, ~2 min after logging)';
+  chkAutoUp.Checked := cqrini.ReadBool('LoTW','AutoUpload',False);
+  chkAutoUp.OnChange := @chkAutoUpChange
+end;
+
+procedure TfrmLoTWExport.chkAutoUpChange(Sender: TObject);
+begin
+  cqrini.WriteBool('LoTW','AutoUpload',chkAutoUp.Checked)
 end;
 
 function TfrmLoTWExport.ExportToAdif : Word;
@@ -556,6 +580,310 @@ begin
     Application.ProcessMessages
   end
 end;
+
+
+{ ------------------------------------------------------------------ }
+{ Auto-LoTW engine                                                    }
+{ ------------------------------------------------------------------ }
+
+type
+  TAutoLotwThread = class(TThread)
+  private
+    fCmd     : String;
+    fIds     : TStringList;   //owned; id_cqrlog_main of the batch
+    fTail    : String;        //last interesting tqsl output line
+    fExit    : Integer;
+    procedure SyncDone;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const ACmd : String; AIds : TStringList);
+    destructor Destroy; override;
+  end;
+
+  TAutoLotw = class
+  private
+    tmr    : TTimer;
+    busy   : Boolean;
+    procedure OnTimer(Sender : TObject);
+    procedure StartBatch;
+  public
+    constructor Create;
+    procedure Kick;
+    procedure BatchFinished;
+  end;
+
+var
+  AutoLotw : TAutoLotw = nil;
+
+const
+  C_AUTOLOTW_FILE = 'autolotw.adi';
+  C_AUTOLOTW_CAP  = 500;    //bigger backlogs belong in the manual window
+
+procedure AutoLotwStatus(const msg : String);
+begin
+  if dmData.DebugLevel >= 1 then Writeln('AutoLoTW: ',msg);
+  if (frmLogUploadStatus <> nil) and frmLogUploadStatus.Showing then
+    frmLogUploadStatus.ServiceLineRaw('LoTW: '+msg, clTeal)
+end;
+
+constructor TAutoLotwThread.Create(const ACmd : String; AIds : TStringList);
+begin
+  inherited Create(True);
+  fCmd := ACmd;
+  fIds := AIds;
+  FreeOnTerminate := True
+end;
+
+destructor TAutoLotwThread.Destroy;
+begin
+  FreeAndNil(fIds);
+  inherited Destroy
+end;
+
+procedure TAutoLotwThread.Execute;
+var
+  P   : TProcess;
+  buf : array[0..2047] of char;
+  n   : Integer;
+  raw : String = '';
+  i   : Integer;
+  lst : TStringList;
+begin
+  P := TProcess.Create(nil);
+  try
+    //sh -c handles the quoted station-location in the operator's template.
+    P.Executable := '/bin/sh';
+    P.Parameters.Add('-c');
+    P.Parameters.Add(fCmd);
+    P.Options := [poUsePipes, poStderrToOutPut];
+    P.Execute;
+    while P.Running do
+    begin
+      if P.Output.NumBytesAvailable > 0 then
+      begin
+        n := P.Output.Read(buf, SizeOf(buf));
+        if n > 0 then raw := raw + copy(buf, 1, n)
+      end
+      else
+        Sleep(100)
+    end;
+    while P.Output.NumBytesAvailable > 0 do
+    begin
+      n := P.Output.Read(buf, SizeOf(buf));
+      if n <= 0 then break;
+      raw := raw + copy(buf, 1, n)
+    end;
+    fExit := P.ExitStatus;
+    lst := TStringList.Create;
+    try
+      lst.Text := raw;
+      for i := lst.Count-1 downto 0 do
+        if Trim(lst[i]) <> '' then
+        begin
+          fTail := Trim(lst[i]);
+          break
+        end
+    finally
+      lst.Free
+    end
+  finally
+    P.Free
+  end;
+  Synchronize(@SyncDone)
+end;
+
+procedure TAutoLotwThread.SyncDone;
+var
+  q    : TSQLQuery;
+  tr   : TSQLTransaction;
+  i    : Integer;
+  date : String;
+begin
+  //tqsl exit codes: 0 = uploaded, 8 = all were already uploaded
+  //(duplicates), 9 = mixed — all three mean LoTW has the QSOs.
+  if (fExit = 0) or (fExit = 8) or (fExit = 9) then
+  begin
+    date := FormatDateTime('yyyy-mm-dd',now);
+    q  := TSQLQuery.Create(nil);
+    tr := TSQLTransaction.Create(nil);
+    try
+      tr.DataBase   := dmData.MainCon;
+      q.DataBase    := dmData.MainCon;
+      q.Transaction := tr;
+      tr.StartTransaction;
+      for i := 0 to fIds.Count-1 do
+      begin
+        q.SQL.Text := 'update cqrlog_main set lotw_qsls='+QuotedStr('Y')+
+                      ', lotw_qslsdate='+QuotedStr(date)+
+                      ' where id_cqrlog_main='+fIds[i];
+        q.ExecSQL
+      end;
+      tr.Commit;
+      AutoLotwStatus(IntToStr(fIds.Count)+' QSO signed and uploaded ('+fTail+')');
+      //The manual export refreshes the grids after marking; without this
+      //the sent-flags sit invisible until the next natural refresh
+      //(live-found: "they do not show as sent").
+      if frmMain <> nil then
+        frmMain.acRefreshExecute(nil)
+    finally
+      q.Free;
+      tr.Free
+    end
+  end
+  else
+    AutoLotwStatus('upload FAILED (tqsl exit '+IntToStr(fExit)+'): '+fTail+
+                   ' - QSOs stay queued for the next batch');
+  if AutoLotw <> nil then
+    AutoLotw.BatchFinished
+end;
+
+constructor TAutoLotw.Create;
+begin
+  inherited Create;
+  tmr := TTimer.Create(nil);
+  tmr.Enabled  := False;
+  tmr.Interval := 1000 * cqrini.ReadInteger('LoTW','AutoDelaySec',120);
+  tmr.OnTimer  := @OnTimer
+end;
+
+procedure TAutoLotw.Kick;
+begin
+  //restart the quiet-period timer: a run of QSOs becomes one batch
+  tmr.Interval := 1000 * cqrini.ReadInteger('LoTW','AutoDelaySec',120);
+  tmr.Enabled := False;
+  tmr.Enabled := True
+end;
+
+procedure TAutoLotw.BatchFinished;
+begin
+  busy := False
+end;
+
+procedure TAutoLotw.OnTimer(Sender : TObject);
+begin
+  tmr.Enabled := False;
+  if busy then
+  begin
+    tmr.Enabled := True;   //previous batch still signing: wait another period
+    exit
+  end;
+  StartBatch
+end;
+
+procedure TAutoLotw.StartBatch;
+var
+  q        : TSQLQuery;
+  tr       : TSQLTransaction;
+  f        : TextFile;
+  ids      : TStringList;
+  FileName : String;
+  cmd      : String;
+  tqslBin  : String;
+  tmp,
+  ModeOut,
+  SubmodeOut : String;
+begin
+  cmd := cqrini.ReadString('LoTWExp','cmd','/usr/bin/tqsl -d -l "your qth name" %f -x');
+  tqslBin := Trim(ExtractWord(1,cmd,[' ']));
+  if not FileExists(tqslBin) then
+  begin
+    AutoLotwStatus('tqsl not found ('+tqslBin+') - check the LoTW export window settings');
+    exit
+  end;
+  if Pos('your qth name',cmd) > 0 then
+  begin
+    AutoLotwStatus('station location not set - open the LoTW export window once');
+    exit
+  end;
+
+  FileName := dmUtils.GetHomeDirectory+'.config/cqrlog/'+C_AUTOLOTW_FILE;
+  ids := TStringList.Create;
+  q   := TSQLQuery.Create(nil);
+  tr  := TSQLTransaction.Create(nil);
+  try
+    tr.DataBase   := dmData.MainCon;
+    q.DataBase    := dmData.MainCon;
+    q.Transaction := tr;
+    tr.StartTransaction;
+    q.SQL.Text := 'select * from cqrlog_main where lotw_qslsdate is null'+
+                  ' and (lotw_qsls is null or lotw_qsls='+QuotedStr('')+')'+
+                  ' and upper(coalesce(prop_mode,'+QuotedStr('')+'))<>'+QuotedStr('RPT')+
+                  ' order by id_cqrlog_main limit '+IntToStr(C_AUTOLOTW_CAP+1);
+    q.Open;
+    if q.Eof then exit;                       //nothing unsigned
+
+    AssignFile(f,FileName);
+    {$i-} ReWrite(f); {$i+}
+    if IOResult <> 0 then
+    begin
+      AutoLotwStatus('cannot write '+FileName);
+      exit
+    end;
+    Writeln(f,'<ADIF_VER:5>3.1.0');
+    Writeln(f,'auto-LoTW export from CQRLOG');
+    Writeln(f,'<EOH>');
+    while not q.Eof do
+    begin
+      if ids.Count >= C_AUTOLOTW_CAP then
+      begin
+        CloseFile(f);
+        AutoLotwStatus('more than '+IntToStr(C_AUTOLOTW_CAP)+
+                       ' unsigned QSOs - use the LoTW export window for the backlog');
+        exit
+      end;
+      tmp := q.FieldByName('qsodate').AsString;
+      Writeln(f,dmUtils.StringToADIF('<QSO_DATE',copy(tmp,1,4)+copy(tmp,6,2)+copy(tmp,9,2)));
+      tmp := q.FieldByName('time_on').AsString;
+      Writeln(f,dmUtils.StringToADIF('<TIME_ON',copy(tmp,1,2)+copy(tmp,4,2)));
+      Writeln(f,dmUtils.StringToADIF('<CALL',dmUtils.RemoveSpaces(q.FieldByName('callsign').AsString)));
+      dmUtils.ModeFromCqr(q.FieldByName('mode').AsString,0,dmData.DebugLevel >= 1,ModeOut,SubmodeOut);
+      Writeln(f,dmUtils.StringToADIF('<MODE',ModeOut));
+      if SubmodeOut <> '' then
+        Writeln(f,dmUtils.StringToADIF('<SUBMODE',SubmodeOut));
+      Writeln(f,dmUtils.StringToADIF('<BAND',q.FieldByName('band').AsString));
+      Writeln(f,dmUtils.StringToADIF('<FREQ',q.FieldByName('freq').AsString));
+      if (q.FieldByName('prop_mode').AsString <> '') then
+        Writeln(f,dmUtils.StringToADIF('<PROP_MODE',q.FieldByName('prop_mode').AsString));
+      if (q.FieldByName('satellite').AsString <> '') then
+        Writeln(f,dmUtils.StringToADIF('<SAT_NAME',q.FieldByName('satellite').AsString));
+      if (q.FieldByName('rxfreq').AsString <> '') then
+        Writeln(f,dmUtils.StringToADIF('<FREQ_RX',q.FieldByName('rxfreq').AsString));
+      Writeln(f,'<EOR>');
+      ids.Add(q.FieldByName('id_cqrlog_main').AsString);
+      q.Next
+    end;
+    CloseFile(f);
+
+    //Operator's template does the signing; -u makes tqsl upload the
+    //result itself and -a compliant skips already-uploaded QSOs without
+    //asking. %f -> our batch file.
+    cmd := StringReplace(cmd,'%f',AnsiQuotedStr(FileName,'"'),[rfReplaceAll]);
+    if Pos(' -u',cmd) = 0 then cmd := cmd + ' -u';
+    if Pos(' -a ',cmd) = 0 then cmd := cmd + ' -a compliant';
+    if Pos(' -q',cmd) = 0 then cmd := cmd + ' -q';
+
+    AutoLotwStatus('signing + uploading '+IntToStr(ids.Count)+' QSO ...');
+    busy := True;
+    TAutoLotwThread.Create(cmd, ids).Start;
+    ids := nil                                 //thread owns the list now
+  finally
+    q.Close;
+    if tr.Active then tr.RollBack;
+    q.Free;
+    tr.Free;
+    ids.Free
+  end
+end;
+
+procedure AutoLotwQsoSaved;
+begin
+  if not cqrini.ReadBool('LoTW','AutoUpload',False) then exit;
+  if AutoLotw = nil then
+    AutoLotw := TAutoLotw.Create;
+  AutoLotw.Kick
+end;
+
 
 end.
 

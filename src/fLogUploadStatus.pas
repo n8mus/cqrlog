@@ -64,6 +64,9 @@ type
     //another service's message the way a shared last-line did.
     procedure ServiceLine(where : TWhereToUpload; const msg : String; aColor : TColor);
     procedure ServiceLineUpdate(where : TWhereToUpload; const upd : String);
+    //Free-form line for engines outside the ledger rounds (auto-LoTW):
+    //no per-service bookkeeping, shown only when the window is open.
+    procedure ServiceLineRaw(const msg : String; aColor : TColor);
 
     procedure UploadDataToHamQTH(ToAll : Boolean = False);
     procedure UploadDataToClubLog(ToAll : Boolean = False);
@@ -448,6 +451,12 @@ begin
   item := item + ' ... ' + upd;
   mStatus.ReplaceLine(item,dmLogUpload.GetLogUploadColor(where),clWhite,0,
                       lineOf[where],0)
+end;
+
+procedure TfrmLogUploadStatus.ServiceLineRaw(const msg : String; aColor : TColor);
+begin
+  if mStatus = nil then exit;
+  mStatus.AddLine(msg,aColor,clWhite,0)
 end;
 
 function TfrmLogUploadStatus.ServiceEnabled(where : TWhereToUpload) : Boolean;
