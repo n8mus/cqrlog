@@ -9,7 +9,8 @@ uses
   dynlibs, lcltype, ExtCtrls, sqlscript, process, mysql51dyn, ssl_openssl_lib,
   mysql55dyn, mysql55conn, mysql51conn, db, httpsend, blcksock, synautil, Forms,
   Graphics, mysql56conn, mysql56dyn, mysql57dyn, mysql57conn,
-  lNet, lNetComponents, laz2_DOM, laz2_XMLWrite, md5, StrUtils, LazFileUtils;
+  lNet, lNetComponents, laz2_DOM, laz2_XMLWrite, md5, StrUtils, LazFileUtils,
+  contnrs;
 
 const
   C_HAMQTH       = 'HamQTH';
@@ -22,6 +23,24 @@ const
 
 type
   TWhereToUpload = (upHamQTH, upClubLog, upHrdLog, upUDPLog, upQrzLog);
+
+type
+  { One fully-prepared upload action. Built on the MAIN thread (all
+    database reads happen there); the per-service worker threads touch
+    nothing but these strings and the network. }
+  TUploadWorkItem = class
+  public
+    ChangeId    : Integer;      //log_changes.id (upload_status advance)
+    MainId      : Integer;      //id_cqrlog_main
+    Cmd         : String;       //INSERT / UPDATE / DELETE
+    Callsign    : String;
+    OldCallsign : String;
+    UpdDeleted  : Boolean;      //UPDATE: original still needs deleting
+    InsData     : TStringList;  //user header + insert header
+    DelData     : TStringList;  //user header + delete header
+    constructor Create;
+    destructor Destroy; override;
+  end;
 
 type
 
@@ -67,6 +86,15 @@ type
     procedure PrepareDeleteHeader(where : TWhereToUpload; id_log_changes,id_cqrlog_main : Integer; data : TStringList);
     procedure MarkAsUploaded(LogName : String; id_log_changes : Integer);
     procedure MarkAsUpDeleted(id_log_upload : Integer);
+    function  GetLogName(where : TWhereToUpload) : String;
+    //Main-thread work-list builder for the parallel upload workers: reads
+    //upload_status + log_changes and pre-renders every request body, so a
+    //worker never touches the shared database connection. For ClubLog with
+    //more than 3 pending changes, returns an empty list and a prepared
+    //bulk POST in Bulk/BulkNote instead (putlogs.php path).
+    function  BuildUploadWork(where : TWhereToUpload; out Bulk : TStringList;
+                              out BulkNote : String;
+                              out NothingToDo : Boolean) : TFPObjectList;
     procedure DisableOnlineLogSupport;
     procedure EnableOnlineLogSupport(RemoveOldChanges : Boolean = True);
   end;
@@ -77,7 +105,7 @@ var
 implementation
   {$R *.lfm}
 
-uses dData, dDXCluster, uMyIni, dSatellite;
+uses dData, dDXCluster, uMyIni, dSatellite, dUtils;
 
 procedure TdmLogUpload.DataModuleCreate(Sender: TObject);
 var
@@ -380,7 +408,22 @@ begin
     max := Q.Fields[0].AsInteger;
 
     Q.Close;
-    Q.SQL.Text := 'update upload_status set id_log_changes='+IntToStr(max);
+    //Scoped to THIS service. The old statement had no WHERE clause and
+    //stomped every service's pointer whenever the ClubLog bulk path
+    //marked itself done — silently discarding the other services'
+    //pending uploads (live-found 2026-07-17: WD8PQA reached ClubLog,
+    //never QRZ/HRDLog, yet all pointers read "done").
+    Q.SQL.Text := 'select count(*) as nr from upload_status where logname='+QuotedStr(LogName);
+    Q.Open;
+    err := Q.FieldByName('nr').AsInteger = 0;   //row missing entirely
+    Q.Close;
+    if err then
+    begin
+      err := False;
+      Q.SQL.Text := 'insert into upload_status (logname, id_log_changes) values ('+QuotedStr(LogName)+','+IntToStr(max)+')'
+    end
+    else
+      Q.SQL.Text := 'update upload_status set id_log_changes='+IntToStr(max)+' where logname='+QuotedStr(LogName);
     if dmData.DebugLevel >= 1 then Writeln(Q.SQL.Text);
     Q.ExecSQL
   except
@@ -1044,13 +1087,26 @@ end;
 procedure TdmLogUpload.MarkAsUploaded(LogName : String; id_log_changes : Integer);
 const
   C_UPD = 'update upload_status set id_log_changes = %d where logname = %s';
+  C_INS = 'insert into upload_status (logname, id_log_changes) values (%s,%d)';
 var
-  err : Boolean = False;
+  err     : Boolean = False;
+  missing : Boolean = False;
 begin
   Q2.Close;
   if trQ2.Active then trQ2.RollBack;
   try try
-    Q2.SQL.Text := Format(C_UPD,[id_log_changes,QuotedStr(LogName)]);
+    //Self-heal a missing service row: qrz.com was never seeded by the
+    //older PrepareEmptyLogUploadStatusTables / v19 migration, so its
+    //pointer UPDATE silently matched nothing and every QRZ round
+    //re-uploaded the entire backlog from id 0 (live-found 2026-07-17).
+    Q2.SQL.Text := 'select count(*) as nr from upload_status where logname='+QuotedStr(LogName);
+    Q2.Open;
+    missing := Q2.FieldByName('nr').AsInteger = 0;
+    Q2.Close;
+    if missing then
+      Q2.SQL.Text := Format(C_INS,[QuotedStr(LogName),id_log_changes])
+    else
+      Q2.SQL.Text := Format(C_UPD,[id_log_changes,QuotedStr(LogName)]);
     if dmData.DebugLevel >= 1 then Writeln(Q2.SQL.Text);
     Q2.ExecSQL
   except
@@ -1235,5 +1291,187 @@ begin
        Result := 200
   end
 end;
+
+
+constructor TUploadWorkItem.Create;
+begin
+  inherited Create;
+  InsData := TStringList.Create;
+  DelData := TStringList.Create
+end;
+
+destructor TUploadWorkItem.Destroy;
+begin
+  FreeAndNil(InsData);
+  FreeAndNil(DelData);
+  inherited Destroy
+end;
+
+function TdmLogUpload.GetLogName(where : TWhereToUpload) : String;
+begin
+  Result := '';
+  case where of
+    upHamQTH  : Result := C_HAMQTH;
+    upClubLog : Result := C_CLUBLOG;
+    upHrdlog  : Result := C_HRDLOG;
+    upUDPLog  : Result := C_UDPLOG;
+    upQrzLog  : Result := C_QRZLOG
+  end //case
+end;
+
+function TdmLogUpload.BuildUploadWork(where : TWhereToUpload; out Bulk : TStringList;
+  out BulkNote : String; out NothingToDo : Boolean) : TFPObjectList;
+const
+  C_SEL_UPLOAD_STATUS = 'select * from upload_status where logname=%s';
+  C_SEL_LOG_CHANGES   = 'select * from log_changes where id > %d order by id';
+  C_COUNT_CLUBLOG_ACTIONS = 'select(select count(id) from log_changes where id > (select id_log_changes from upload_status where logname="ClubLog")) as nr';
+var
+  item       : TUploadWorkItem;
+  Command    : String;
+  tmp        : String;
+  LastId     : Integer = 0;
+  ClubCount  : Integer = 0;
+  ClubBulk   : Boolean = False;
+  filepart   : Text;
+  StreamFile : String;
+begin
+  Result := TFPObjectList.Create(True);   //owns the work items
+  Bulk        := nil;
+  BulkNote    := '';
+  NothingToDo := False;
+  StreamFile  := dmUtils.GetHomeDirectory+'.config/cqrlog/Clublog_BulkUp.adi';
+
+  if trQ.Active then trQ.RollBack;
+  trQ.StartTransaction;
+  try
+    if (where = upClubLog) then
+    begin
+      Q.Close;
+      Q.SQL.Text := C_COUNT_CLUBLOG_ACTIONS;
+      Q.Open;
+      ClubCount := Q.FieldByName('nr').AsInteger;
+      ClubBulk  := (ClubCount > 3)  //how many actions cause putlogs.php usage
+    end;
+
+    Q.Close;
+    Q.SQL.Text := Format(C_SEL_UPLOAD_STATUS,[QuotedStr(GetLogName(where))]);
+    Q.Open;
+    LastId := Q.FieldByName('id_log_changes').AsInteger;
+
+    Q.Close;
+    Q.SQL.Text := Format(C_SEL_LOG_CHANGES,[LastId]);
+    Q.Open;
+    if Q.Eof or Q.Fields[0].IsNull then
+    begin
+      NothingToDo := True;
+      exit
+    end;
+
+    if ClubBulk then
+    begin
+      BulkNote := 'Using bulk upload for '+IntToStr(ClubCount)+' changes';
+      AssignFile(filepart,StreamFile);
+      ReWrite(filepart);
+      while not Q.Eof do
+      begin
+        Command := Q.FieldByName('cmd').AsString;
+        item := TUploadWorkItem.Create;  //carries the progress captions
+        try
+          item.Cmd         := Command;
+          item.Callsign    := Q.FieldByName('callsign').AsString;
+          item.OldCallsign := Q.FieldByName('old_callsign').AsString;
+          case Command of
+            'INSERT' : begin
+                         PrepareInsertHeader(where,Q.Fields[0].AsInteger,Q.FieldByName('id_cqrlog_main').AsInteger,item.InsData);
+                         tmp := item.InsData[0];
+                         Write(filepart,copy(tmp,pos('=<',tmp)+1,length(tmp))+#13#10)
+                       end;
+            'UPDATE' : begin
+                         //we get better format from modified HamQth-delete
+                         PrepareDeleteHeader(upHamQth,Q.Fields[0].AsInteger,Q.FieldByName('id_cqrlog_main').AsInteger,item.DelData);
+                         tmp := copy(item.DelData[0],6,length(item.DelData[0]));
+                         tmp := StringReplace(tmp,'OLD_','',[rfReplaceAll,rfIgnoreCase]);
+                         tmp := tmp+'<'+dmUtils.StringToADIF('QSLCALL',UpperCase(cqrini.ReadString('Station', 'Call', '')))+'<EOR>'+LineEnding;
+                         Write(filepart,tmp+#13#10);
+                         item.InsData.Clear;
+                         PrepareInsertHeader(where,Q.Fields[0].AsInteger,Q.FieldByName('id_cqrlog_main').AsInteger,item.InsData);
+                         tmp := item.InsData[0];
+                         Write(filepart,copy(tmp,pos('=<',tmp)+1,length(tmp))+#13#10)
+                       end;
+            'DELETE' : begin
+                         PrepareDeleteHeader(upHamQth,Q.Fields[0].AsInteger,Q.FieldByName('id_cqrlog_main').AsInteger,item.DelData);
+                         tmp := copy(item.DelData[0],6,length(item.DelData[0]));
+                         tmp := StringReplace(tmp,'OLD_','',[rfReplaceAll,rfIgnoreCase]);
+                         tmp := tmp+'<'+dmUtils.StringToADIF('QSLCALL',UpperCase(cqrini.ReadString('Station', 'Call', '')))+'<EOR>'+LineEnding;
+                         Write(filepart,tmp+#13#10)
+                       end
+            else begin
+              if (dmData.DebugLevel >= 1) then
+                Writeln('Unknown command:',Command);
+              FreeAndNil(item);
+              Q.Next;
+              Continue
+            end
+          end; //case
+          Result.Add(item);
+          item := nil
+        finally
+          item.Free   //only on an exceptional path; Result owns the rest
+        end;
+        Q.Next
+      end;
+      close(filepart);
+      Bulk := TStringList.Create;
+      Bulk.Add('file='+StreamFile);
+      PrepareUserInfoHeader(where,Bulk)
+    end
+    else begin
+      while not Q.Eof do
+      begin
+        Command := Q.FieldByName('cmd').AsString;
+        if (Command<>'INSERT') and (Command<>'UPDATE') and (Command<>'DELETE') then
+        begin
+          if (dmData.DebugLevel >= 1) then
+            Writeln('Unknown command:',Command);
+          Q.Next;
+          Continue
+        end;
+        item := TUploadWorkItem.Create;
+        item.ChangeId    := Q.Fields[0].AsInteger;
+        item.MainId      := Q.FieldByName('id_cqrlog_main').AsInteger;
+        item.Cmd         := Command;
+        item.Callsign    := Q.FieldByName('callsign').AsString;
+        item.OldCallsign := Q.FieldByName('old_callsign').AsString;
+        item.UpdDeleted  := Q.FieldByName('upddeleted').AsInteger = 1;
+        case Command of
+          'INSERT' : begin
+                       PrepareUserInfoHeader(where,item.InsData);
+                       PrepareInsertHeader(where,item.ChangeId,item.MainId,item.InsData)
+                     end;
+          'UPDATE' : begin
+                       if item.UpdDeleted and (where<>upUDPLog) then
+                       begin
+                         PrepareUserInfoHeader(where,item.DelData);
+                         PrepareDeleteHeader(where,item.ChangeId,item.MainId,item.DelData)
+                       end;
+                       PrepareUserInfoHeader(where,item.InsData);
+                       PrepareInsertHeader(where,item.ChangeId,item.MainId,item.InsData)
+                     end;
+          'DELETE' : begin
+                       PrepareUserInfoHeader(where,item.DelData);
+                       PrepareDeleteHeader(where,item.ChangeId,item.MainId,item.DelData)
+                     end
+        end; //case
+        Result.Add(item);
+        Q.Next
+      end;
+      NothingToDo := (Result.Count = 0)
+    end
+  finally
+    Q.Close;
+    trQ.RollBack
+  end
+end;
+
 
 end.

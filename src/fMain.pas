@@ -699,7 +699,7 @@ end;
 
 procedure TfrmMain.tmrUploadAllTimer(Sender: TObject);
 begin
-  if (not frmLogUploadStatus.thRunning) then
+  if (not frmLogUploadStatus.Running(WhatUpNext)) then // parallel: wait only for THIS service
   begin
     case WhatUpNext of
       upHamQTH :  begin
