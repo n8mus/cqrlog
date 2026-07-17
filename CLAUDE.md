@@ -116,6 +116,19 @@ the wrong file:
   as a full UPDATE for all services. The trigger fix lives in dData.lfm
   SOURCE because preferences saves re-run the trigger script and wipe
   DB-only fixes (this exact bug had been fixed live once and came back).
+- **Console bridge extras** (since Enhanced 5): the UDP 2334 listener also
+  accepts a populate-only message `CQRLOOKUP:CALL[;PARK:ref][;GRID:loc]`
+  (`HandleConsoleLookup` in fNewQSO) — fills New QSO + callbook lookup, no
+  save. A spot-supplied grid (POTA park) sets `SpotGrid`/`SpotGridCall`,
+  which `SynCallBook` honors so the QRZ home locator can't overwrite it
+  (Jon runs `UseCallBookData=1` = always-replace); cleared in `ClearAll`.
+  SP/LP buttons beside `lblAzi` send one-shot `P az 0` to rotctld (ROT1
+  host/port) via `SendRotorAzimuth` — no rotor window, no polling session.
+- **Rotor is lazy** (since Enhanced 5): cqrlog no longer connects to
+  rotctld at startup — `InicializeRot` is gated on `RotWanted`, set only
+  when the rotor window opens (and cleared + rotor freed on close). Two
+  500 ms pollers (cqrlog + SDR console) swamp the DCU-3's 4800 Bd serial
+  and the daemon backlogs unboundedly — one polling client max.
 - **POTA fields**: `pota_ref` (park *you* activated during that QSO) and
   `pota_hunted_ref` (park the *other station* was in) on `cqrlog_main`, also
   selected by the `view_cqrlog_main_by_qsodate*` views. ADIF uses the legacy

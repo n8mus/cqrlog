@@ -4310,6 +4310,38 @@ object frmNewQSO: TfrmNewQSO
           ParentFont = False
           OnChangeBounds = lblAziChangeBounds
         end
+        object btnRotSP: TSpeedButton
+          AnchorSideLeft.Control = lblAzi
+          AnchorSideLeft.Side = asrBottom
+          AnchorSideTop.Control = lblAzim
+          AnchorSideTop.Side = asrCenter
+          Left = 207
+          Height = 20
+          Top = 157
+          Width = 22
+          BorderSpacing.Left = 6
+          Caption = 'SP'
+          OnClick = btnRotSPClick
+          ShowHint = True
+          ParentShowHint = False
+          Hint = 'Turn rotor to short path'
+        end
+        object btnRotLP: TSpeedButton
+          AnchorSideLeft.Control = btnRotSP
+          AnchorSideLeft.Side = asrBottom
+          AnchorSideTop.Control = lblAzim
+          AnchorSideTop.Side = asrCenter
+          Left = 231
+          Height = 20
+          Top = 157
+          Width = 22
+          BorderSpacing.Left = 2
+          Caption = 'LP'
+          OnClick = btnRotLPClick
+          ShowHint = True
+          ParentShowHint = False
+          Hint = 'Turn rotor to long path'
+        end
         object lblHisTime: TLabel
           AnchorSideLeft.Control = btnSunRise
           AnchorSideTop.Control = btnSunRise

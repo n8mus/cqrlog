@@ -67,6 +67,7 @@ type
     rotor : TRotControl;
     MouseWheelUsed : Boolean;
     CaretMousePos  : integer;
+    RotWanted : Boolean; //user opened the window: rotctld session allowed
   public
     { public declarations }
     BeamDir : Double;
@@ -99,6 +100,9 @@ begin
   mnuStopbtn.Checked:=cqrini.ReadBool('ROT','Stopbtn',False);
   if pnlMinMax.Visible then gbAzimuth.Height:=70;
   Beamdir:=-1;
+  RotWanted := True;
+  if not Assigned(rotor) then //startup no longer connects; first open does
+    InicializeRot;
 end;
 
 procedure TfrmRotControl.gbAzimuthClick(Sender: TObject);
@@ -165,6 +169,9 @@ procedure TfrmRotControl.FormClose(Sender: TObject;
   var CloseAction: TCloseAction);
 begin
    dmUtils.SaveWindowPos(Self);
+   RotWanted := False;
+   if Assigned(rotor) then    //window closed = stop the 500 ms polling;
+     FreeAndNil(rotor);       //slow serial rotors can't serve two pollers
 end;
 
 procedure TfrmRotControl.FormDestroy(Sender: TObject);
@@ -381,6 +388,12 @@ var
   port   : Integer;
   poll   : Integer;
 begin
+  Result := False;
+  //Lazy rotor: only hold a polling rotctld session while the window is
+  //open. Startup sets rbRotor Checked programmatically, which fires the
+  //click handlers and would connect here - the guard stops that too.
+  if not RotWanted then
+    exit;
   if Assigned(rotor) then
   begin
     FreeAndNil(rotor);

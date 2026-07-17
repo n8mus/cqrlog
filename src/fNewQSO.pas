@@ -368,6 +368,8 @@ type
     sbtnLoTW: TSpeedButton;
     sbtnQRZ: TSpeedButton;
     sbtnQSL: TSpeedButton;
+    btnRotSP: TSpeedButton;
+    btnRotLP: TSpeedButton;
     sgrdStatistic : TStringGrid;
     btnSunRise: TSpeedButton;
     sgrdCallStatistic: TStringGrid;
@@ -602,6 +604,8 @@ type
     procedure sbtnLocatorMapClick(Sender: TObject);
     procedure sbtnQSLClick(Sender: TObject);
     procedure sbtnQRZClick(Sender: TObject);
+    procedure btnRotSPClick(Sender: TObject);
+    procedure btnRotLPClick(Sender: TObject);
     procedure sbtnHamQTHClick(Sender : TObject);
     procedure sbtnUsrbtnClick(Sender: TObject);
     procedure sgrdCallStatisticPrepareCanvas(Sender: TObject; aCol,
@@ -749,7 +753,10 @@ type
     CurrentMyLoc          : String; //currently valid my locator global var and public for other units.
     EditViewMyLoc         : String;  //this is needed for exeption when edit/viev myloc is not CurrentMyloc
     QSLImgIsEQSL          : integer; //>0 if callsign has eQSL image(s);
-
+    SpotGrid              : String; //locator that came WITH a spot (POTA park
+    SpotGridCall          : String; //grid) - while it matches the current call,
+                                    //SynCallBook must not replace the grid with
+                                    //the callbook (home QTH) locator
 
     property EditQSO : Boolean read fEditQSO write fEditQSO default False;
     property ViewQSO : Boolean read fViewQSO write fViewQSO default False;
@@ -777,6 +784,17 @@ type
     procedure SavePosition;
     procedure NewQSOFromSpot(call,freq,mode : String;FromRbn : Boolean = False);
     procedure SetHuntedPark(ParkRef : String);
+    //Locator supplied by the spot itself (POTA park grid). Sets the grid
+    //field, recomputes azimuth/distance and guards against the callbook
+    //lookup replacing it with the operator's home locator.
+    procedure SetSpotGrid(Grid : String);
+    //Console populate-only message: "CQRLOOKUP:CALL[;PARK:ref][;GRID:loc]".
+    //Fills New QSO like typing the call would (callbook, DXCC, azimuth) but
+    //never saves and never touches freq/mode - the rig follows rigctld.
+    procedure HandleConsoleLookup(args : String);
+    //One-shot "P <az> 0" to rotctld (ROT1 host/port) - used by the SP/LP
+    //buttons so no rotor window has to be open.
+    procedure SendRotorAzimuth(az : Double);
     procedure SetEditLabel;
     procedure UnsetEditLabel;
     procedure SetSplit(s : String);
@@ -1296,6 +1314,8 @@ var
   since  : String;
   lat,long,p : Currency;
 begin
+  SpotGrid     := '';   //next QSO starts with a clean grid guard
+  SpotGridCall := '';
   if fViewQSO then
   begin
     if (not (fViewQSO or fEditQSO or cbOffline.Checked)) then
@@ -2182,6 +2202,13 @@ begin
       if dmData.DebugLevel>=1 then Writeln('rmtADIF read data');
       if Sock.lasterror=0 then
        begin
+         //Console populate-only lookup (no save): fill the New QSO window
+         //like a DX-cluster click would and let the callbook do the lifting.
+         if FromConsole and (Pos('CQRLOOKUP:',Buf) = 1) then
+         begin
+           HandleConsoleLookup(copy(Buf,11,Length(Buf)));
+           Continue
+         end;
          //check data.
          //N1MM contact info
          if (pos('<CONTACTINFO>',Uppercase(Buf))>0 )
@@ -7168,8 +7195,9 @@ begin
     if ((edtQTH.Text = '') or AlwaysReplace) and (c_callsign = edtCall.Text) then
       edtQTH.Text := c_qth;  //qth
 
-    if ((edtGrid.Text='') or AlwaysReplace) and dmUtils.IsLocOK(c_grid) and (c_callsign = edtCall.Text) then
-    begin
+    if ((edtGrid.Text='') or AlwaysReplace) and dmUtils.IsLocOK(c_grid) and (c_callsign = edtCall.Text)
+       and ((SpotGrid='') or (SpotGridCall<>edtCall.Text)) then //spot-supplied
+    begin                          //grid (POTA park) beats the home locator
       edtGrid.Text := c_grid;
       edtGridExit(nil)
     end;  //grid
@@ -7337,6 +7365,100 @@ begin
   finally
     existing.Free
   end
+end;
+
+procedure TfrmNewQSO.SetSpotGrid(Grid : String);
+begin
+  Grid := Trim(Grid);
+  if (Grid = '') or (not dmUtils.IsLocOK(Grid)) then
+    exit;
+  SpotGrid     := Grid;
+  SpotGridCall := edtCall.Text;
+  edtGrid.Text := Grid;
+  edtGridExit(nil)     //azimuth + distance now point at the park, not home
+end;
+
+procedure TfrmNewQSO.HandleConsoleLookup(args : String);
+var
+  lst  : TStringList;
+  call : String;
+  park : String = '';
+  grid : String = '';
+  i    : Integer;
+begin
+  lst := TStringList.Create;
+  try
+    lst.Delimiter       := ';';
+    lst.StrictDelimiter := True;
+    lst.DelimitedText   := args;
+    if lst.Count = 0 then
+      exit;
+    call := UpperCase(Trim(lst[0]));
+    for i := 1 to lst.Count-1 do
+    begin
+      if Pos('PARK:',lst[i]) = 1 then
+        park := copy(lst[i],6,Length(lst[i]));
+      if Pos('GRID:',lst[i]) = 1 then
+        grid := copy(lst[i],6,Length(lst[i]))
+    end
+  finally
+    lst.Free
+  end;
+  if call = '' then
+    exit;
+  if call <> edtCall.Text then
+  begin
+    edtCall.Text := call;
+    c_lock := False;
+    edtCallExit(nil)      //callbook + DXCC + azimuth, async - no save
+  end;
+  if park <> '' then
+    SetHuntedPark(park);
+  if grid <> '' then
+    SetSpotGrid(grid);
+  BringToFront
+end;
+
+procedure TfrmNewQSO.SendRotorAzimuth(az : Double);
+var
+  sock : TTCPBlockSocket;
+  host : String;
+  port : String;
+begin
+  while az < 0 do
+    az := az + 360;
+  while az >= 360 do
+    az := az - 360;
+  host := cqrini.ReadString('ROT1','host','localhost');
+  if host = '' then //blanked host disables the rotor WINDOW, not rotctld
+    host := 'localhost';
+  port := IntToStr(cqrini.ReadInteger('ROT1','RotCtldPort',4533));
+  sock := TTCPBlockSocket.Create;
+  try
+    sock.Connect(host, port);
+    if sock.LastError = 0 then
+    begin
+      //whole degrees: no locale decimal-separator surprises for rotctld
+      sock.SendString('P '+IntToStr(Round(az))+' 0'+#10);
+      sbNewQSO.Panels[1].Text := 'Rotor -> '+IntToStr(Round(az))+' deg'
+    end
+    else
+      sbNewQSO.Panels[1].Text := 'Rotor: no rotctld on '+host+':'+port
+  finally
+    sock.Free
+  end
+end;
+
+procedure TfrmNewQSO.btnRotSPClick(Sender: TObject);
+begin
+  if Azimuth <> '' then
+    SendRotorAzimuth(dmUtils.MyStrToFloat(Azimuth))
+end;
+
+procedure TfrmNewQSO.btnRotLPClick(Sender: TObject);
+begin
+  if Azimuth <> '' then
+    SendRotorAzimuth(dmUtils.MyStrToFloat(Azimuth)+180)
 end;
 
 procedure TfrmNewQSO.SetEditLabel;

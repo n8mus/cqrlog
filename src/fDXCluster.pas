@@ -254,12 +254,14 @@ var
   ChatSpots    : TColorMemo;
   PotaSpots    : TColorMemo;
   PotaParkRefs : TStringList;
+  PotaParkGrids: TStringList;  //spot line -> park grid6 (pota.app JSON)
   ThInfo       : String;
   ThSpot       : String;
   ThColor      : Integer;
   ThBckColor   : Integer;
   ThChat       : String;
   ThParkRef    : String;
+  ThParkGrid   : String;
   ChBckColor   : Integer;
   TelThread    : TTelThread;
   SentStartCmd : Boolean;
@@ -396,7 +398,8 @@ begin
   WebSpots.Free;
   TelSpots.Free;
   PotaSpots.Free;
-  PotaParkRefs.Free
+  PotaParkRefs.Free;
+  PotaParkGrids.Free
 end;
 
 procedure TfrmDXCluster.FormActivate(Sender: TObject);
@@ -598,7 +601,8 @@ begin
   ChatSpots.setLanguage(1);
 
   BuildPotaTab;
-  PotaParkRefs := TStringList.Create;
+  PotaParkRefs  := TStringList.Create;
+  PotaParkGrids := TStringList.Create;
 
   Spots := TStringList.Create;
   Spots.Clear;
@@ -699,6 +703,8 @@ begin
   park := PotaParkRefs.Values[spot];
   if park <> '' then
     frmNewQSO.SetHuntedPark(park);
+  //park grid beats the activator's home locator for azimuth + logged loc
+  frmNewQSO.SetSpotGrid(PotaParkGrids.Values[spot]);
 end;
 
 procedure TfrmDXCluster.SpotDbClick(Spot:String);
@@ -1924,7 +1930,7 @@ var
   spot      : String;
   info      : String;
   sColor    : TColor;
-  activator, freqKHz, reference, spotMode, parkName, spotter, comments, spotTime, hhmm : String;
+  activator, freqKHz, reference, spotMode, parkName, spotter, comments, spotTime, hhmm, parkGrid : String;
 begin
   if dmData.DebugLevel>=1 then
     Writeln('In TPotaThread.Execute');
@@ -1963,6 +1969,9 @@ begin
         spotter   := Jobj.Get('spotter','');
         comments  := Jobj.Get('comments','');
         spotTime  := Jobj.Get('spotTime','');
+        parkGrid  := Jobj.Get('grid6','');
+        if parkGrid = '' then
+          parkGrid := Jobj.Get('grid4','');
         if (activator = '') or (freqKHz = '') then
           Continue;
         hhmm := '0000';
@@ -1978,10 +1987,11 @@ begin
         try
           if frmDXCluster.ShowPotaSpot(spot,reference,spotMode,sColor) then
           begin
-            ThSpot    := spot;
-            ThColor   := sColor;
-            ThInfo    := '';
-            ThParkRef := reference;
+            ThSpot     := spot;
+            ThColor    := sColor;
+            ThInfo     := '';
+            ThParkRef  := reference;
+            ThParkGrid := parkGrid;
             Synchronize(@frmDXCluster.SynPota)
           end
         finally
@@ -2074,7 +2084,8 @@ begin
     lblPotaInfo.Caption := ThInfo;
   if ThSpot = '' then
     exit;
-  PotaParkRefs.Values[ThSpot] := ThParkRef;
+  PotaParkRefs.Values[ThSpot]  := ThParkRef;
+  PotaParkGrids.Values[ThSpot] := ThParkGrid;
   if PotaSpots.Search(ThSpot,0,True,True) = -1 then
   begin
     PotaSpots.DisableAutoRepaint(true);

@@ -11,6 +11,17 @@
     <strong>CQRLOG α (Alpha)</strong><br>
     What is new:
     <ul style="list-style: square;text-align:left; color: green;" >
+    <li>(5) 2026-07-17</li><ul>
+    <li>NewQSO:Add: SP/LP rotor buttons next to the azimuth display - turn the rotator (via rotctld, Preferences/RotControl host+port) to the short or long path of the current call without opening the rotor window</li>
+    <li>RotControl:Change: no rotctld connection at startup anymore - the 500 ms polling session starts when the rotor window is opened and stops when it is closed. Slow serial rotors (e.g. DCU-3 at 4800 Bd) choke when two programs poll them; the SP/LP buttons use a one-shot command instead</li>
+    <li>Remote:Add: console bridge accepts a populate-only "CQRLOOKUP" message - clicking a call in the SDR console (CW decoder, DX/FT8/POTA spots) fills the New QSO window and runs the callbook lookup exactly as if the call were typed, without saving anything</li>
+    <li>POTA:Add: clicking a POTA spot (console or the DX Cluster POTA tab) now carries the PARK's grid square into New QSO - azimuth/distance and the logged locator point at the park instead of the activator's home QTH, and the callbook lookup no longer overwrites it (name/QTH/state still fill from the callbook)</li>
+    <li>Onlinelogs:Change: uploads run in parallel - one background worker per service, so one slow or down service no longer holds up the rest</li>
+    <li>Onlinelogs:Fix: per-service upload bookmarks - a missing qrz.com status row made every QRZ round re-send the whole backlog, and a bulk status update stomped every other service's pointer; both fixed and self-healing</li>
+    <li>LoTW:Add: automatic background sign+upload (tqsl) of newly logged QSOs after a quiet period - enable in the LoTW export window ("Upload automatically after logging"); successful upload marks the QSOs LoTW-sent and refreshes the grids</li>
+    <li>eQSL:Add: automatic background upload of newly logged QSOs, same quiet-period batching - enable in the eQSL upload window</li>
+    <li>Onlinelogs:Fix: QSL-status marking (LoTW/eQSL sent flags, QRZ logbook ids) no longer re-queues every touched QSO as a full update for all online logs</li>
+    </ul>
     <li>(1) 2026-07-06 - CQRLog Enhanced fork (built on Alpha 141)</li><ul>
     <li>POTA:Add: full Parks on the Air logging support - "My Park"/"Park worked" fields on New QSO, ADIF import/export (SIG/SIG_INFO/MY_SIG/MY_SIG_INFO), park stats via Custom Statistics</li>
     <li>POTA:Add: native "POTA" tab in the DX Cluster window showing live activator spots from api.pota.app, colored by worked status, with click-to-tune and automatic "Park worked" fill-in</li>

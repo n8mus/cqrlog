@@ -880,7 +880,11 @@ begin
   frmTRXControl.InitializeRig;
   frmRotControl.rbRotor1.Checked:= cqrini.ReadBool('ROT','Use1',True);
   frmRotControl.rbRotor2.Checked:= not(cqrini.ReadBool('ROT','Use1',True));
-  frmRotControl.InicializeRot;
+  //No rotor connect at startup: TRotControl polls rotctld every 500 ms
+  //forever once connected, which swamps slow serial rotors (DCU-3 at
+  //4800 Bd) when the SDR console is polling too. The rotor window
+  //connects on first open (FormShow); the New QSO SP/LP buttons use
+  //their own one-shot connection and need no daemon session at all.
 
   OpenFreqMemories('');
 
