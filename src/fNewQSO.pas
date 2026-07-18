@@ -736,6 +736,7 @@ type
     ADIFSock              : TUDPBlockSocket;
     ConsoleSock           : TUDPBlockSocket; //always-on console log bridge (UDP ADIF)
     tmrConsole            : TTimer;          //polls ConsoleSock; runs with any remote mode
+    tmrLoTWAuto           : TTimer;          //once-a-day LoTW confirmation auto-download (opt-in)
 
     WsjtxMode             : String;    //Moved from private
     WsjtxBand             : String;
@@ -774,6 +775,7 @@ type
     //fill-form-then-save within one tick, never interleaved with a remote's.
     procedure StartConsoleBridge;
     procedure tmrConsoleTimer(Sender: TObject);
+    procedure LoTWAutoCheck(Sender: TObject);   //daily LoTW confirmation pull (opt-in, default off)
     procedure ProcessAdifSocket(Sock : TUDPBlockSocket; FromConsole : Boolean);
     procedure GetCallInfo(callTOinfo,mode,rsts:string);    //used with wsjtx remote
 
@@ -878,6 +880,7 @@ implementation
 { TfrmNewQSO }
 
 uses dUtils, fChangeLocator, fChangeOperator, dDXCC, dDXCluster, dData, fMain, fSelectDXCC, fGrayline, fLoTWExport, feQSLUpload,
+     fImportLoTWWeb,
      fTRXControl, fPreferences, fSplash, fDXCluster, fDXCCStat,fQSLMgr, fSendSpot,
      fQSODetails, fWAZITUStat, fDOKStat, fIOTAStat, fGraphStat, fImportProgress, fBandMap,
      fLongNote, fRefCall, fKeyTexts, fCWType, fExportProgress, fPropagation, fCallAttachment,
@@ -8470,7 +8473,44 @@ begin
   CheckForDOKTablesUpdate;
   CheckForQslManagersUpdate;
   CheckForMembershipUpdate;
-  CheckForAlphaVersion
+  CheckForAlphaVersion;
+  //Daily LoTW confirmation auto-download (opt-in, default off). Arm a timer
+  //that first fires ~20 s after startup (so launch isn't blocked by a network
+  //pull) and re-checks hourly; the check itself is a no-op until a new day.
+  if tmrLoTWAuto = nil then
+  begin
+    tmrLoTWAuto := TTimer.Create(Self);
+    tmrLoTWAuto.Interval := 20000;
+    tmrLoTWAuto.OnTimer  := @LoTWAutoCheck;
+    tmrLoTWAuto.Enabled  := True
+  end
+end;
+
+procedure TfrmNewQSO.LoTWAutoCheck(Sender: TObject);
+begin
+  if tmrLoTWAuto <> nil then
+    tmrLoTWAuto.Interval := 3600000;   //after the first fire, settle to hourly re-checks
+  //Opt-in, default off — standalone users are unaffected.
+  if not cqrini.ReadBool('LoTWImp','AutoDownload',False) then
+    exit;
+  //At most one pull per calendar day.
+  if cqrini.ReadString('LoTWImp','AutoLastRun','') = FormatDateTime('yyyy-mm-dd',Now) then
+    exit;
+  //Need LoTW credentials to fetch.
+  if (cqrini.ReadString('LoTW','LoTWName','') = '') or
+     (cqrini.ReadString('LoTW','LoTWPass','') = '') then
+    exit;
+  with TfrmImportLoTWWeb.Create(Self) do
+  try
+    if RunAutoDownload then
+    begin
+      cqrini.WriteString('LoTWImp','AutoLastRun',FormatDateTime('yyyy-mm-dd',Now));
+      if frmMain <> nil then
+        frmMain.acRefreshExecute(nil)   //surface the new confirmations in the grid
+    end
+  finally
+    Free
+  end
 end;
 
 procedure TfrmNewQSO.CheckForDXCCTablesUpdate;

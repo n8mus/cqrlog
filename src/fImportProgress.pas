@@ -73,6 +73,7 @@ type
     Directory  : String;
     CloseAfImport : Boolean;
     LoTWShowNew : Boolean;
+    Silent      : Boolean;   //headless auto-download: skip interactive prompts
     LoTWQSOList : TStringList;
     eQSLShowNew : Boolean;
     eQSLQSOList : TStringList;
@@ -771,6 +772,14 @@ begin
 
     dmData.trQ1.StartTransaction;
     dmData.trQ.StartTransaction;
+    //The confirmation marks below (lotw_qslr='L') must not churn the
+    //online-log ledger. The cqrlog_main update trigger queues each UPDATE
+    //to log_changes only while @cqr_qsl_mark IS NULL, so without this guard
+    //every confirmed QSO gets re-queued for re-upload to all services — a
+    //feedback loop once the download runs automatically. Reset in the
+    //finally; it is a session var, so it never leaks past this import.
+    dmData.Q1.SQL.Text := 'SET @cqr_qsl_mark=1';
+    dmData.Q1.ExecSQL;
     Reset(f);
     lblComment.Caption := 'Importing LoTW Adif file ...';
     pBarProg.Visible   := False;
@@ -928,7 +937,7 @@ begin
           Repaint
       end;
       dmData.trQ1.Commit;
-      if ErrorCount > 0 then
+      if (ErrorCount > 0) and (not Silent) then
       begin
         //l.SaveToFile(dmData.UsrHomeDir + C_LErrorFile);  //this is done now right after error record appear
         if Application.MessageBox(PChar(IntToStr(ErrorCount)+' QSO(s) were not found in your log.'+LineEnding+'QSO(s) are stored to '+dmData.UsrHomeDir + C_LErrorFile +
@@ -937,12 +946,20 @@ begin
       end
     end
     else begin
-      if Application.MessageBox('Something is wrong because LoTW server returned invalid adif file header.'+LineEnding+
+      if (not Silent) and
+         (Application.MessageBox('Something is wrong because LoTW server returned invalid adif file header.'+LineEnding+
                                 'Your LoTW username/password could be wrong or LoTW server is down.'+LineEnding+LineEnding+'Do you want to show the file?',
-                                'Error ...',mb_YesNo+mb_IconQuestion) = idYes then
+                                'Error ...',mb_YesNo+mb_IconQuestion) = idYes) then
         frmAdifImport.OpenInTextEditor(FileName)
     end
   finally
+    //Clear the ledger-suppression flag set above. It is a session var, so it
+    //takes effect immediately and survives the rollback that discards any
+    //partial marks left by an aborted import — the flag never leaks out.
+    if not dmData.trQ1.Active then dmData.trQ1.StartTransaction;
+    dmData.Q1.SQL.Text := 'SET @cqr_qsl_mark=NULL';
+    dmData.Q1.ExecSQL;
+    dmData.trQ1.Rollback;
     dmData.Q.Close();
     if dmData.trQ.Active then
       dmData.trQ.Rollback;
@@ -1132,6 +1149,11 @@ begin
   dmData.trQ1.StartTransaction;
   dmData.trQ.StartTransaction;
   try
+    //Guard the eqsl_qsl_rcvd='E' marks below from the online-log ledger the
+    //same way the LoTW import does: without @cqr_qsl_mark every confirmed
+    //QSO would be re-queued for re-upload. Reset in the finally.
+    dmData.Q1.SQL.Text := 'SET @cqr_qsl_mark=1';
+    dmData.Q1.ExecSQL;
     AssignFile(f,FileName);
     Reset(f);
     lblComment.Caption := 'Importing eQSL Adif file ...';
@@ -1278,6 +1300,11 @@ begin
       frmAdifImport.OpenInTextEditor(dmData.UsrHomeDir + C_EErrorFile)
     end
   finally
+    //Clear the ledger-suppression flag (session var; survives the rollback).
+    if not dmData.trQ1.Active then dmData.trQ1.StartTransaction;
+    dmData.Q1.SQL.Text := 'SET @cqr_qsl_mark=NULL';
+    dmData.Q1.ExecSQL;
+    dmData.trQ1.Rollback;
     l.Free;
     if cqrini.ReadBool('OnlineLog','IgnoreLoTWeQSL',False) then
       dmLogUpload.EnableOnlineLogSupport(False);

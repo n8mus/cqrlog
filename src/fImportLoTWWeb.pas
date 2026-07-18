@@ -40,10 +40,14 @@ type
   private
     Done : Boolean;
     FileSize : Int64;
+    chkAutoDownload : TCheckBox;   //runtime opt-in for the daily auto-pull (no .lfm edit)
     procedure SockCallBack (Sender: TObject; Reason:  THookSocketReason; const  Value: string);
   public
-    { public declarations }
-  end; 
+    //Headless once-a-day confirmation pull: fetch lotwreport.adi with the
+    //stored credentials and mark matches silently. Returns True if the
+    //fetch+import ran. Driven from fNewQSO's daily timer.
+    function RunAutoDownload : Boolean;
+  end;
 
 var
   frmImportLoTWWeb: TfrmImportLoTWWeb;
@@ -224,6 +228,22 @@ begin
   edtCall.Text       := cqrini.ReadString('LoTWImp','Call',
                         cqrini.ReadString('Station','Call',''));
   cbImports.Checked  := cqrini.ReadBool('LoTWImp','Import',True);
+  if chkAutoDownload = nil then
+  begin
+    //Runtime opt-in (no .lfm edit, per the auto-LoTW pattern). Grow the
+    //settings area so the extra row isn't clipped, then anchor below the
+    //last checkbox so no pixel math is needed.
+    pnlSettings.Height := pnlSettings.Height + 28;
+    chkAutoDownload := TCheckBox.Create(Self);
+    chkAutoDownload.Parent := cbImports.Parent;      //gbSettings
+    chkAutoDownload.AnchorSideLeft.Control := cbImports;
+    chkAutoDownload.AnchorSideTop.Control  := cbImports;
+    chkAutoDownload.AnchorSideTop.Side     := asrBottom;
+    chkAutoDownload.BorderSpacing.Top      := 3;
+    chkAutoDownload.Width   := 470;
+    chkAutoDownload.Caption := 'Automatically download confirmations once a day (background)';
+  end;
+  chkAutoDownload.Checked := cqrini.ReadBool('LoTWImp','AutoDownload',False);
   Done := False;
   btnClose.Font.Style:=[];
   btnClose.Repaint;
@@ -232,7 +252,69 @@ end;
 procedure TfrmImportLoTWWeb.FormCloseQuery(Sender: TObject;
   var CanClose: boolean);
 begin
+  if chkAutoDownload <> nil then
+    cqrini.WriteBool('LoTWImp','AutoDownload',chkAutoDownload.Checked);
   dmUtils.SaveWindowPos(Self)
+end;
+
+function TfrmImportLoTWWeb.RunAutoDownload : Boolean;
+var
+  user, pass, url, AdifFile, sinceDate : String;
+  http : THTTPSend;
+  m    : TFileStream;
+begin
+  Result := False;
+  user := cqrini.ReadString('LoTW','LoTWName','');
+  pass := dmUtils.EncodeURLData(cqrini.ReadString('LoTW','LoTWPass',''));
+  if (user = '') or (pass = '') then
+    exit;
+  //Incremental window: pull since the stored watermark. The first auto-run
+  //has none, so it falls back to the last 30 days (not the full 1990 history,
+  //which would be a large blocking pull on startup — a manual download still
+  //covers older confirmations). Overlap is harmless: the import skips QSOs
+  //already marked 'L'.
+  sinceDate := cqrini.ReadString('LoTWImp','AutoSince',
+               FormatDateTime('yyyy-mm-dd', IncDay(Today,-30)));
+  AdifFile := dmData.HomeDir + 'lotw/'+FormatDateTime('yyyy-mm-dd_hh-mm-ss',now)+'_auto.adi';
+  http := THTTPSend.Create;
+  m    := TFileStream.Create(AdifFile,fmCreate);
+  try
+    HTTP.ProxyHost := cqrini.ReadString('Program','Proxy','');
+    HTTP.ProxyPort := cqrini.ReadString('Program','Port','');
+    HTTP.UserName  := cqrini.ReadString('Program','User','');
+    HTTP.Password  := cqrini.ReadString('Program','Passwd','');
+    url := 'https://LoTW.arrl.org/lotwuser/lotwreport.adi?login='+user+'&password='+pass+
+           '&qso_query=1&qso_qsldetail="yes"&qso_qslsince='+sinceDate;
+    http.MimeType := 'text/xml';
+    http.Protocol := '1.1';
+    if http.HTTPMethod('GET',url) then
+    begin
+      http.Document.Seek(0,soBeginning);
+      m.CopyFrom(http.Document,HTTP.Document.Size);
+      http.Clear;
+      if FileExists(AdifFile) then
+      begin
+        with TfrmImportProgress.Create(Self) do
+        try
+          FileName    := AdifFile;
+          ImportType  := imptImportLoTWAdif;
+          LoTWShowNew := False;
+          Silent      := True;      //no interactive prompts on the daily run
+          ShowModal
+        finally
+          Free
+        end;
+        //Advance the watermark with a 2-day overlap so a missed day is
+        //recovered on the next pull.
+        cqrini.WriteString('LoTWImp','AutoSince',
+          FormatDateTime('yyyy-mm-dd', IncDay(Today,-2)));
+        Result := True
+      end
+    end
+  finally
+    http.Free;
+    m.Free
+  end
 end;
 
 procedure TfrmImportLoTWWeb.cbImportsChange(Sender: TObject);
