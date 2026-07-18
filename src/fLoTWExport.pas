@@ -384,7 +384,14 @@ begin
   index:=0;
   paramList := TStringList.Create;
   paramList.Delimiter := ' ';
-  paramList.DelimitedText := StringReplace(edtTqsl.Text,'%f',FileName,[]);
+  //Force -q (quiet). Without it tqsl can pop its "configuration file out
+  //of date" / certificate-password dialog; this synchronous wait then
+  //freezes the whole GUI until that (often hidden) window is dismissed -
+  //the "force upload locked up" bug. -q makes tqsl fail with a status
+  //instead of blocking on a dialog. The auto-upload path already adds it.
+  tmp := StringReplace(edtTqsl.Text,'%f',FileName,[]);
+  if Pos(' -q',tmp) = 0 then tmp := tmp + ' -q';
+  paramList.DelimitedText := tmp;
   AProcess.Parameters.Clear;
   while index < paramList.Count do
   begin

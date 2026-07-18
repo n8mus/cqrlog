@@ -11,6 +11,9 @@
     <strong>CQRLOG α (Alpha)</strong><br>
     What is new:
     <ul style="list-style: square;text-align:left; color: green;" >
+    <li>(6) 2026-07-17</li><ul>
+    <li>LoTW:Fix: the manual "sign/upload" button now runs tqsl with -q (quiet). Without it tqsl could pop its "configuration out of date" or certificate-password dialog behind the CQRLOG window and the synchronous wait froze the whole GUI until that hidden dialog was dismissed. Note: a run that signs QSOs but doesn't finish uploading leaves them in tqsl's local duplicate database - tqsl then refuses to resend them ("already uploaded") even though LoTW never received them; recover with a tqsl upload using duplicate-action "all"</li>
+    </ul>
     <li>(5) 2026-07-17</li><ul>
     <li>NewQSO:Add: SP/LP rotor buttons next to the azimuth display - turn the rotator (via rotctld, Preferences/RotControl host+port) to the short or long path of the current call without opening the rotor window</li>
     <li>RotControl:Change: no rotctld connection at startup anymore - the 500 ms polling session starts when the rotor window is opened and stops when it is closed. Slow serial rotors (e.g. DCU-3 at 4800 Bd) choke when two programs poll them; the SP/LP buttons use a one-shot command instead</li>
