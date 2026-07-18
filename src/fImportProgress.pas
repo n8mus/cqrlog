@@ -1292,7 +1292,7 @@ begin
     end;
     dmData.trQ1.Commit;
     CloseFile(f);
-    if ErrorCount > 0 then
+    if (ErrorCount > 0) and (not Silent) then
     begin
       //l.SaveToFile(dmData.UsrHomeDir + C_EErrorFile); //this is done now right after error record appear
       if Application.MessageBox(PChar(IntToStr(ErrorCount)+' QSO(s) were not found in your log.'+LineEnding+'QSO(s) are stored to '+dmData.UsrHomeDir + C_EErrorFile +

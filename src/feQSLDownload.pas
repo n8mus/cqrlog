@@ -36,8 +36,13 @@ type
   private
     Done     : Boolean;
     FileSize : Int64;
+    chkAutoDownload : TCheckBox;   //runtime opt-in for the daily auto-pull (no .lfm edit)
     procedure SockCallBack (Sender: TObject; Reason: THookSocketReason; const  Value: string);
   public
+    //Headless once-a-day eQSL inbox pull: request the inbox, fetch the .adi
+    //and mark matches silently. Returns True if the fetch+import ran (or the
+    //inbox was empty). Driven from fNewQSO's daily timer.
+    function RunAutoDownload : Boolean;
   end;
 
 var
@@ -58,6 +63,21 @@ begin
   edtQTH.Text        := cqrini.ReadString('eQSL','QTH','');
   chkShowNew.Checked := cqrini.ReadBool('eQSLImp','ShowNewQSOs',True);
   chkChangeDate.Checked:=cqrini.ReadBool('eQSLImp','ChangeDate',False);
+  if chkAutoDownload = nil then
+  begin
+    //Runtime opt-in (no .lfm edit, per the LoTW pattern). Grow the settings
+    //panel so the extra row isn't clipped, then anchor below the last checkbox.
+    Panel1.Height := Panel1.Height + 28;
+    chkAutoDownload := TCheckBox.Create(Self);
+    chkAutoDownload.Parent := chkShowNew.Parent;     //gbSettings
+    chkAutoDownload.AnchorSideLeft.Control := chkShowNew;
+    chkAutoDownload.AnchorSideTop.Control  := chkShowNew;
+    chkAutoDownload.AnchorSideTop.Side     := asrBottom;
+    chkAutoDownload.BorderSpacing.Top      := 3;
+    chkAutoDownload.Width   := 470;
+    chkAutoDownload.Caption := 'Automatically download confirmations once a day (background)';
+  end;
+  chkAutoDownload.Checked := cqrini.ReadBool('eQSLImp','AutoDownload',False);
   btnClose.Font.Style:=[];
   btnClose.Repaint;
 end;
@@ -80,7 +100,100 @@ procedure TfrmeQSLDownload.FormClose(Sender : TObject;
   var CloseAction : TCloseAction);
 begin
   cqrini.WriteString('eQSL','QTH',edtQTH.Text);
+  if chkAutoDownload <> nil then
+    cqrini.WriteBool('eQSLImp','AutoDownload',chkAutoDownload.Checked);
   dmUtils.SaveWindowPos(Self)
+end;
+
+function TfrmeQSLDownload.RunAutoDownload : Boolean;
+const
+  CDWNLD = '.adi">';
+var
+  user, pass, url, AdifFile, sinceDate, qth, tmp : String;
+  http : THTTPSend;
+  m    : TFileStream;
+  l    : TStringList;
+  i    : Integer;
+begin
+  Result := False;
+  user := cqrini.ReadString('LoTW','eQSLName','');
+  pass := cqrini.ReadString('LoTW','eQSLPass','');
+  if (user = '') or (pass = '') then
+    exit;
+  //First auto-run has no watermark; fall back to the last 30 days (not the
+  //full history). Overlap is harmless — the import skips QSOs already 'E'.
+  sinceDate := cqrini.ReadString('eQSLImp','AutoSince',
+               FormatDateTime('yyyy-mm-dd', IncDay(Today,-30)));
+  qth      := cqrini.ReadString('eQSL','QTH','');
+  AdifFile := dmData.HomeDir + 'eQSL/'+FormatDateTime('yyyy-mm-dd_hh-mm-ss',now)+'_auto.adi';
+  http := THTTPSend.Create;
+  m    := TFileStream.Create(AdifFile,fmCreate);
+  l    := TStringList.Create;
+  try
+    http.ProxyHost := cqrini.ReadString('Program','Proxy','');
+    http.ProxyPort := cqrini.ReadString('Program','Port','');
+    http.UserName  := cqrini.ReadString('Program','User','');
+    http.Password  := cqrini.ReadString('Program','Passwd','');
+    http.MimeType  := 'text/xml';
+    http.Protocol  := '1.1';
+    //Step 1: ask eQSL to build the inbox file and return a page with its link.
+    url := cqrini.ReadString('LoTW','eQSLStartAddr','https://www.eqsl.cc/qslcard/DownloadInBox.cfm')+
+           '?UserName='+user+
+           '&Password='+dmUtils.EncodeURLData(pass)+
+           '&QTHNickname='+dmUtils.EncodeURLData(qth)+
+           '&RcvdSince='+StringReplace(sinceDate,'-','',[rfReplaceAll,rfIgnoreCase]);
+    if not http.HTTPMethod('GET',url) then
+      exit;
+    http.Document.Seek(0,soBeginning);
+    l.LoadFromStream(http.Document);
+    http.Clear;
+    if Pos('Error: No such Username/Password found',l.Text) > 0 then
+      exit;
+    if Pos('You have no log entries',l.Text) > 0 then
+    begin
+      //Empty inbox is still a successful run — advance the watermark so we
+      //don't re-ask all day.
+      cqrini.WriteString('eQSLImp','AutoSince',FormatDateTime('yyyy-mm-dd',IncDay(Today,-2)));
+      Result := True;
+      exit
+    end;
+    if Pos(CDWNLD,l.Text) <= 0 then
+      exit;
+    //Step 2: parse the .adi filename out of the returned page.
+    tmp := '';
+    for i := 0 to pred(l.Count) do
+      if Pos(CDWNLD,l[i]) > 0 then
+      begin
+        tmp := copy(l[i],1,pos('.adi"',l[i])+3);
+        tmp := ExtractFileNameOnly(tmp)+ExtractFileExt(tmp)
+      end;
+    if tmp = '' then
+      exit;
+    //Step 3: fetch the actual ADIF and import it silently.
+    url := cqrini.ReadString('LoTW','eQSLDnlAddr','https://www.eqsl.cc/downloadedfiles/')+tmp;
+    if not http.HTTPMethod('GET',url) then
+      exit;
+    http.Document.Seek(0,soBeginning);
+    m.CopyFrom(http.Document,http.Document.Size);
+    if not FileExists(AdifFile) then
+      exit;
+    with TfrmImportProgress.Create(Self) do
+    try
+      FileName    := AdifFile;
+      ImportType  := imptImporteQSLAdif;
+      eQSLShowNew := False;
+      Silent      := True;
+      ShowModal
+    finally
+      Free
+    end;
+    cqrini.WriteString('eQSLImp','AutoSince',FormatDateTime('yyyy-mm-dd',IncDay(Today,-2)));
+    Result := True
+  finally
+    http.Free;
+    m.Free;
+    l.Free
+  end
 end;
 
 procedure TfrmeQSLDownload.SockCallBack (Sender: TObject; Reason:  THookSocketReason; const  Value: string);

@@ -776,6 +776,7 @@ type
     procedure StartConsoleBridge;
     procedure tmrConsoleTimer(Sender: TObject);
     procedure LoTWAutoCheck(Sender: TObject);   //daily LoTW confirmation pull (opt-in, default off)
+    procedure eQSLAutoCheck(Sender: TObject);   //daily eQSL confirmation pull (opt-in, default off)
     procedure ProcessAdifSocket(Sock : TUDPBlockSocket; FromConsole : Boolean);
     procedure GetCallInfo(callTOinfo,mode,rsts:string);    //used with wsjtx remote
 
@@ -880,7 +881,7 @@ implementation
 { TfrmNewQSO }
 
 uses dUtils, fChangeLocator, fChangeOperator, dDXCC, dDXCluster, dData, fMain, fSelectDXCC, fGrayline, fLoTWExport, feQSLUpload,
-     fImportLoTWWeb,
+     fImportLoTWWeb, feQSLDownload,
      fTRXControl, fPreferences, fSplash, fDXCluster, fDXCCStat,fQSLMgr, fSendSpot,
      fQSODetails, fWAZITUStat, fDOKStat, fIOTAStat, fGraphStat, fImportProgress, fBandMap,
      fLongNote, fRefCall, fKeyTexts, fCWType, fExportProgress, fPropagation, fCallAttachment,
@@ -8490,6 +8491,9 @@ procedure TfrmNewQSO.LoTWAutoCheck(Sender: TObject);
 begin
   if tmrLoTWAuto <> nil then
     tmrLoTWAuto.Interval := 3600000;   //after the first fire, settle to hourly re-checks
+  //eQSL rides the same timer but has its own opt-in and daily stamp, so run
+  //it first regardless of the LoTW gates below.
+  eQSLAutoCheck(Sender);
   //Opt-in, default off — standalone users are unaffected.
   if not cqrini.ReadBool('LoTWImp','AutoDownload',False) then
     exit;
@@ -8505,6 +8509,31 @@ begin
     if RunAutoDownload then
     begin
       cqrini.WriteString('LoTWImp','AutoLastRun',FormatDateTime('yyyy-mm-dd',Now));
+      if frmMain <> nil then
+        frmMain.acRefreshExecute(nil)   //surface the new confirmations in the grid
+    end
+  finally
+    Free
+  end
+end;
+
+procedure TfrmNewQSO.eQSLAutoCheck(Sender: TObject);
+begin
+  //Opt-in, default off — standalone users are unaffected.
+  if not cqrini.ReadBool('eQSLImp','AutoDownload',False) then
+    exit;
+  //At most one pull per calendar day.
+  if cqrini.ReadString('eQSLImp','AutoLastRun','') = FormatDateTime('yyyy-mm-dd',Now) then
+    exit;
+  //Need eQSL credentials to fetch.
+  if (cqrini.ReadString('LoTW','eQSLName','') = '') or
+     (cqrini.ReadString('LoTW','eQSLPass','') = '') then
+    exit;
+  with TfrmeQSLDownload.Create(Self) do
+  try
+    if RunAutoDownload then
+    begin
+      cqrini.WriteString('eQSLImp','AutoLastRun',FormatDateTime('yyyy-mm-dd',Now));
       if frmMain <> nil then
         frmMain.acRefreshExecute(nil)   //surface the new confirmations in the grid
     end
