@@ -11,6 +11,9 @@
     <strong>CQRLOG α (Alpha)</strong><br>
     What is new:
     <ul style="list-style: square;text-align:left; color: green;" >
+    <li>(10) 2026-07-18</li><ul>
+    <li>eQSL:Add: automatic once-a-day confirmation download - the mirror of the LoTW auto-download, ticked in the eQSL download window. A few seconds after startup (then re-checked hourly, at most one pull per day) CQRLOG fetches your eQSL inbox in the background, marks the matching QSOs and refreshes the log. The first run pulls the last 30 days; after that it is incremental with a small overlap</li>
+    </ul>
     <li>(9) 2026-07-18</li><ul>
     <li>LoTW:Add: automatic once-a-day confirmation download - tick "Automatically download confirmations once a day" in the LoTW web import window and, a few seconds after startup (then re-checked hourly, at most one pull per day), CQRLOG fetches new LoTW confirmations in the background, marks the matching QSOs and refreshes the log. The first run pulls the last 30 days; after that it is incremental with a small overlap</li>
     <li>LoTW:eQSL:Fix: downloading confirmations no longer re-queues every confirmed QSO for re-upload to all online logs - the confirmation import now runs under the same ledger-suppression guard as the sent-flag marking. Applies to the manual LoTW and eQSL download too</li>
