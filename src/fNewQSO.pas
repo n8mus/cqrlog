@@ -179,6 +179,7 @@ type
     ActionList1: TActionList;
     acTRXControl: TAction;
     btnCancel: TButton;
+    btnClearQSO: TButton;
     btnDXCCRef: TButton;
     btnQSLMgr: TButton;
     btnSave: TButton;
@@ -583,6 +584,7 @@ type
     procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure btnCancelClick(Sender: TObject);
+    procedure btnClearQSOClick(Sender: TObject);
     procedure btnSaveClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormKeyPress(Sender: TObject; var Key: char);
@@ -2209,6 +2211,23 @@ begin
            HandleConsoleLookup(copy(Buf,11,Length(Buf)));
            Continue
          end;
+         //Console "Clear" button: wipe the New QSO form (same as the New QSO
+         //action) so both windows clear together.
+         if FromConsole and (Pos('CQRCLEAR',Buf) = 1) then
+         begin
+           ClearAll;
+           Continue
+         end;
+         //Console "LOG" button: fresh New QSO, bring this window forward and
+         //put the cursor in the callsign field so the operator types here.
+         if FromConsole and (Pos('CQRNEWQSO',Buf) = 1) then
+         begin
+           ClearAll;
+           BringToFront;
+           if edtCall.CanFocus then
+             edtCall.SetFocus;
+           Continue
+         end;
          //check data.
          //N1MM contact info
          if (pos('<CONTACTINFO>',Uppercase(Buf))>0 )
@@ -3685,6 +3704,16 @@ begin
          end;
      end;
 
+end;
+
+procedure TfrmNewQSO.btnClearQSOClick(Sender: TObject);
+begin
+  //Clear every field and start a fresh QSO. Handy when a call was typed
+  //only to run a lookup and the station wasn't worked - previously the
+  //only way to clear was File -> New QSO.
+  ClearAll;
+  if edtCall.CanFocus then
+    edtCall.SetFocus
 end;
 
 procedure TfrmNewQSO.btnCancelClick(Sender: TObject);
@@ -7416,7 +7445,7 @@ begin
     SetHuntedPark(park);
   if grid <> '' then
     SetSpotGrid(grid);
-  BringToFront
+  BringToFront   //behave exactly like a DX-cluster spot click (unchanged)
 end;
 
 procedure TfrmNewQSO.SendRotorAzimuth(az : Double);
