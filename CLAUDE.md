@@ -4,6 +4,18 @@ Fork of CqrlogAlpha (itself a fork of CQRLog) — Lazarus/Free Pascal amateur ra
 logging application, MySQL/MariaDB backend. See [README.md](README.md) for
 user-facing feature notes; this file is for working on the source.
 
+## Database engine detection (Enhanced 7)
+
+`TdmData.GetMysqldPath` (`src/dData.pas`) searches for **`mariadbd` as well
+as `mysqld`** — MariaDB 10.4+ renamed the daemon and modern distros drop the
+`mysqld` symlink, which was the #1 "Can't connect to local MySQL server"
+install failure. `cqrlog-db-setup.sh` (repo root) is the tester-facing
+fixer: installs mariadb-server, symlinks `mysqld`→`mariadbd` (so even
+upstream cqrlog works), adds the Debian/Ubuntu AppArmor exception for
+`~/.config/cqrlog/database`, and a "database doctor" that moves aside a
+corrupted datadir (guarded: a datadir with a `mysql/` dir or
+`aria_log_control` is treated as healthy and never touched).
+
 ## Build
 
     lazbuild --ws=gtk2 --pcp=$HOME/.lazarus src/cqrlog.lpi
