@@ -9,6 +9,27 @@ on 2 Arch based systems.
 I personally used Anthropic Claude to do the entire Arch installs as well as the
 coding changes in the Alpha 141 fork. It was trial and error but in the end
 it is working well here. I found Claude available for free in my latest Firefox update. 
+## Easy database setup (fixes the "can't connect to MySQL" wall)
+
+The #1 reason CQRLOG won't start on a fresh Linux install is the local
+database: modern **MariaDB** renamed its server from `mysqld` to `mariadbd`
+and most distros dropped the old name, so CQRLOG can't find the daemon and
+throws *"Can't connect to local MySQL server through socket."* On
+Debian/Ubuntu, AppArmor also blocks the database folder.
+
+This fork already searches for `mariadbd` directly, and there's a one-line
+setup script that fixes the rest for you — installs MariaDB, makes the
+server findable, adds the AppArmor exception, and repairs a corrupted
+database folder:
+
+```
+bash <(curl -fsSL https://raw.githubusercontent.com/n8mus/cqrlog/master/cqrlog-db-setup.sh)
+```
+
+Run it once (with CQRLOG closed), then start CQRLOG and answer **YES** to
+"save data to a local machine." Safe to re-run; it won't touch a healthy
+database. See [`cqrlog-db-setup.sh`](cqrlog-db-setup.sh) for exactly what it does.
+
 ## What's New
 
 ### QRZ.com Logbook Auto-Upload
