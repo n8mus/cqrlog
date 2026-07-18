@@ -3493,20 +3493,29 @@ end;
 
 function TdmData.GetMysqldPath : String;
 var
-  l : TStringList;
-  info : String;
+  localBin, onPath : String;
 begin
-  Writeln(ExtractFilePath(Paramstr(0))  + 'mysqld');
-  if FileExistsUTF8(ExtractFilePath(Paramstr(0))  + 'mysqld') then
-    Result := ExtractFilePath(Paramstr(0))  + 'mysqld';
-  if FileExistsUTF8('/usr/bin/mysqld') then
-    Result := '/usr/bin/mysqld';
-  if FileExistsUTF8('/usr/bin/mysqld_safe') then //Fedora
-    Result := '/usr/bin/mysqld_safe';
-  if FileExistsUTF8('/usr/sbin/mysqld') then //openSUSE
-    Result := '/usr/sbin/mysqld';
-  if Result = '' then  //don't know where mysqld is, so hopefully will be in  $PATH
-    Result := 'mysqld'
+  // Modern MariaDB (10.4+) renamed the server binary 'mysqld' -> 'mariadbd'
+  // and current distros (Debian/Ubuntu, Fedora, openSUSE) ship NO 'mysqld'
+  // compatibility symlink anymore. cqrlog only looked for 'mysqld', so it
+  // found no daemon and failed with "Can't connect to local MySQL server
+  // through socket" — the single most common install failure on the forum.
+  // Search BOTH names: a binary shipped next to cqrlog, then the real
+  // 'mariadbd', then the legacy 'mysqld' locations, then finally $PATH.
+  localBin := ExtractFilePath(Paramstr(0));
+  if FileExistsUTF8(localBin + 'mysqld')    then Exit(localBin + 'mysqld');
+  if FileExistsUTF8(localBin + 'mariadbd')  then Exit(localBin + 'mariadbd');
+  if FileExistsUTF8('/usr/sbin/mariadbd')   then Exit('/usr/sbin/mariadbd');
+  if FileExistsUTF8('/usr/bin/mariadbd')    then Exit('/usr/bin/mariadbd');
+  if FileExistsUTF8('/usr/bin/mysqld')      then Exit('/usr/bin/mysqld');
+  if FileExistsUTF8('/usr/sbin/mysqld')     then Exit('/usr/sbin/mysqld');   //openSUSE
+  if FileExistsUTF8('/usr/bin/mysqld_safe') then Exit('/usr/bin/mysqld_safe'); //Fedora
+  // Last resort: whatever is on $PATH, preferring the modern name.
+  onPath := FindDefaultExecutablePath('mariadbd');
+  if onPath <> '' then Exit(onPath);
+  onPath := FindDefaultExecutablePath('mysqld');
+  if onPath <> '' then Exit(onPath);
+  Result := 'mariadbd'
 end;
 
 procedure TdmData.PrepareMysqlConfigFile;

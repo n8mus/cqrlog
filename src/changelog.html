@@ -11,6 +11,9 @@
     <strong>CQRLOG α (Alpha)</strong><br>
     What is new:
     <ul style="list-style: square;text-align:left; color: green;" >
+    <li>(7) 2026-07-18</li><ul>
+    <li>Database:Fix: find the MariaDB server binary on modern distros. MariaDB 10.4+ renamed the daemon 'mysqld' to 'mariadbd' and current Debian/Ubuntu, Fedora and openSUSE ship no 'mysqld' compatibility symlink, so CQRLOG could not locate the server and failed with "Can't connect to local MySQL server through socket" - the single most common install problem. CQRLOG now searches for 'mariadbd' as well as 'mysqld' (in /usr/sbin, /usr/bin, next to the binary, then $PATH). Fixes local-database startup on Arch, Fedora, Debian/Ubuntu and openSUSE out of the box</li>
+    </ul>
     <li>(6) 2026-07-17</li><ul>
     <li>LoTW:Fix: the manual "sign/upload" button now runs tqsl with -q (quiet). Without it tqsl could pop its "configuration out of date" or certificate-password dialog behind the CQRLOG window and the synchronous wait froze the whole GUI until that hidden dialog was dismissed. Note: a run that signs QSOs but doesn't finish uploading leaves them in tqsl's local duplicate database - tqsl then refuses to resend them ("already uploaded") even though LoTW never received them; recover with a tqsl upload using duplicate-action "all"</li>
     </ul>
