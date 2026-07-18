@@ -11,6 +11,10 @@
     <strong>CQRLOG α (Alpha)</strong><br>
     What is new:
     <ul style="list-style: square;text-align:left; color: green;" >
+    <li>(9) 2026-07-18</li><ul>
+    <li>LoTW:Add: automatic once-a-day confirmation download - tick "Automatically download confirmations once a day" in the LoTW web import window and, a few seconds after startup (then re-checked hourly, at most one pull per day), CQRLOG fetches new LoTW confirmations in the background, marks the matching QSOs and refreshes the log. The first run pulls the last 30 days; after that it is incremental with a small overlap</li>
+    <li>LoTW:eQSL:Fix: downloading confirmations no longer re-queues every confirmed QSO for re-upload to all online logs - the confirmation import now runs under the same ledger-suppression guard as the sent-flag marking. Applies to the manual LoTW and eQSL download too</li>
+    </ul>
     <li>(8) 2026-07-18</li><ul>
     <li>NewQSO:Add: a "Clear" button in the New QSO window - clears every field and starts a fresh QSO. Previously the only way to clear was File -> New QSO, which is a nuisance after typing a call just to run a callbook lookup on a station you did not work</li>
     <li>Remote:Add: console-bridge messages so the SDR console's LOG button opens a fresh New QSO here (clears the form, brings this window forward, cursor in the callsign field) - the console feeds calls; QSOs are typed and worked in CQRLOG</li>
