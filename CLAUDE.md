@@ -128,6 +128,34 @@ the wrong file:
   as a full UPDATE for all services. The trigger fix lives in dData.lfm
   SOURCE because preferences saves re-run the trigger script and wipe
   DB-only fixes (this exact bug had been fixed live once and came back).
+- **Confirmation auto-download** (Enhanced 9 LoTW, 10 eQSL): the *download*
+  side of the same idea — a daily opt-in pull of LoTW/eQSL confirmations.
+  One `TTimer` in fNewQSO (`tmrLoTWAuto`, created in
+  `CheckForExternalTablesUpdate`) fires ~20 s after startup then hourly;
+  `LoTWAutoCheck` also calls `eQSLAutoCheck`, each independently gated on
+  its own `LoTWImp/AutoDownload` / `eQSLImp/AutoDownload` opt-in (default
+  OFF), a per-calendar-day `AutoLastRun` stamp, and creds. The pull itself
+  is `TfrmImportLoTWWeb.RunAutoDownload` / `TfrmeQSLDownload.RunAutoDownload`
+  (headless: fetch the ADIF with stored creds — eQSL is two-step, request
+  inbox link then fetch — then import via `TfrmImportProgress` with the new
+  `Silent` flag suppressing the not-found prompts). Incremental window is a
+  stored `AutoSince` watermark (first run = last 30 days, advanced to
+  today−2 for overlap; already-'L'/'E' QSOs are skipped so overlap is
+  free). Runs on the MAIN thread (brief modal flash), not a worker — DB
+  access must stay on the main thread. The opt-in checkbox is created at
+  RUNTIME in each download dialog (no .lfm edit, like the auto-upload
+  enable). CRITICAL: the confirmation *import* (`ImportLoTWAdif` /
+  `ImporteQSLAdif` in fImportProgress) marks `lotw_qslr='L'` /
+  `eqsl_qsl_rcvd='E'` and MUST wrap those UPDATEs in `@cqr_qsl_mark=1`
+  (same invariant as above) — upstream did not, so every confirmation
+  re-queued its QSO for re-upload; the guard now brackets both mark loops
+  (reset in the `finally`, survives the rollback) and fixes the manual
+  download too. To bulk-add LoTW's "QSO not found" report
+  (`~/errors_LoTW.adi`): it is cqrlog's error dump, not a clean import —
+  strip the `CONTEST_ID=Qso_was_not_found_in_log!` tag and re-tag
+  `QSL_RCVD` as `LOTW_QSL_RCVD`+`LOTW_QSLRDATE`, then File→Import→ADIF
+  (`acImportADIF`, general import, which honors those and sets
+  `lotw_qslr='L'`); the LoTW import only *marks* existing QSOs.
 - **Console bridge extras** (since Enhanced 5): the UDP 2334 listener also
   accepts a populate-only message `CQRLOOKUP:CALL[;PARK:ref][;GRID:loc]`
   (`HandleConsoleLookup` in fNewQSO) — fills New QSO + callbook lookup, no
