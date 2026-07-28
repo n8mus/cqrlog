@@ -975,6 +975,13 @@ var
 begin
   if InRefresh then
     exit;
+  //Log grid never opened this session -> the query is closed and
+  //FieldByName below raises "Field not found: id_cqrlog_main" (the
+  //startup popup: the daily LoTW/eQSL auto-pull and the auto-upload
+  //paths call this refresh programmatically). Nothing is on screen to
+  //refresh; the grid opens fresh with current data anyway.
+  if not dmData.qCQRLOG.Active then
+    exit;
   try
     InRefresh := True;
     //if user push refresh data very quickly again and again, program may crash
