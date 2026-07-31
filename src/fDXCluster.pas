@@ -218,6 +218,12 @@ type
     ConWeb    : Boolean;
     ConTelnet : Boolean;
     csTelnet  : TRTLCriticalSection;
+    //Guards the spot-render pipeline (ShowSpot + the shared Th* handoff vars)
+    //against the Tel/Web/Pota threads racing each other. MUST NEVER be taken
+    //by the main thread: the spot threads hold it across Synchronize, which
+    //only completes once the main loop runs. csTelnet cannot be used for this
+    //(lReceive takes it on the main thread) - that was a hard deadlock.
+    csSpotWork : TRTLCriticalSection;
     LockScroll   : Boolean;
 
     procedure SendCommand(cmd : String);
@@ -275,7 +281,7 @@ uses dUtils, fDXClusterList, dData, dDXCluster, fMain, fTRXControl, fNewQSO, fBa
 
 procedure TfrmDXCluster.ConnectToWeb;
 var
-  WebThread : TWebThread = nil;
+  WebThread : TWebThread;
 begin
   tmrSpots.Enabled := True;
   if not Running then
@@ -283,11 +289,12 @@ begin
     Running := True;
     if dmData.DebugLevel>=1 then
       Writeln('In ConnectWeb');
-    if WebThread = nil then
-    begin
-      WebThread := TWebThread.Create(True);
-      WebThread.FreeOnTerminate := True
-    end;
+    //Always a fresh thread: FreeOnTerminate means the previous one has already
+    //freed itself, and an initialized local ("= nil") is STATIC in FPC, so the
+    //old "if WebThread = nil" guard re-used a dangling pointer on every tick
+    //after the first fetch. Overlap is prevented by Running, not by reuse.
+    WebThread := TWebThread.Create(True);
+    WebThread.FreeOnTerminate := True;
     WebThread.BiggerFetch := FirstWebGet;
     WebThread.WebUrl      := WebAddr;
     WebThread.Start;
@@ -561,6 +568,7 @@ end;
 procedure TfrmDXCluster.FormCreate(Sender: TObject);
 begin
   InitCriticalSection(csTelnet);
+  InitCriticalSection(csSpotWork);
   InitCriticalSection(csDXCPref);
   FirstShow := True;
   ConOnShow := False;
@@ -1702,22 +1710,27 @@ begin
         if dmData.DebugLevel>=2 then Writeln('TelThread.Execute - leave critical section ');
       end;
       if dmData.DebugLevel >= 1 then Writeln('SpSpot: ',dx);
-      if frmDXCluster.ShowSpot(dx,sColor, Country) then
-      begin
-        if cqrini.ReadBool('DXCluster','ShowDxcCountry',False) then
-          ThSpot := dx + ' ' + Country
-        else
-          ThSpot := dx;
-        ThColor   := sColor;
-        ThInfo    := '';
-        if dmData.DebugLevel>=1 then
+      EnterCriticalsection(frmDXCluster.csSpotWork);
+      try
+        if frmDXCluster.ShowSpot(dx,sColor, Country) then
         begin
-          WriteLn('ThSpot: ',ThSpot);
-          //Writeln('ThColor: ',ThColor)
-        end;
-        if dmData.DebugLevel>=1 then Writeln('TelThread.Execute - before Synchronize(@frmDXCluster.SynTelnet)');
-        Synchronize(@frmDXCluster.SynTelnet);
-        if dmData.DebugLevel>=1 then Writeln('TelThread.Execute - after Synchronize(@frmDXCluster.SynTelnet)')
+          if cqrini.ReadBool('DXCluster','ShowDxcCountry',False) then
+            ThSpot := dx + ' ' + Country
+          else
+            ThSpot := dx;
+          ThColor   := sColor;
+          ThInfo    := '';
+          if dmData.DebugLevel>=1 then
+          begin
+            WriteLn('ThSpot: ',ThSpot);
+            //Writeln('ThColor: ',ThColor)
+          end;
+          if dmData.DebugLevel>=1 then Writeln('TelThread.Execute - before Synchronize(@frmDXCluster.SynTelnet)');
+          Synchronize(@frmDXCluster.SynTelnet);
+          if dmData.DebugLevel>=1 then Writeln('TelThread.Execute - after Synchronize(@frmDXCluster.SynTelnet)')
+        end
+      finally
+        LeaveCriticalsection(frmDXCluster.csSpotWork)
       end
     end;
      //here sSports should be clean but for sure...
@@ -1846,7 +1859,7 @@ begin
     sp.LoadFromStream(HTTP.Document);
     for i:=0 to sp.Count-1 do
     begin
-      EnterCriticalsection(frmDXCluster.csTelnet);
+      EnterCriticalsection(frmDXCluster.csSpotWork);
       if dmData.DebugLevel>=1 then Writeln('Enter critical section TWebThread.Execute');
       try
         a := Explode('^',sp.Strings[i]);
@@ -1876,7 +1889,7 @@ begin
           Synchronize(@frmDXCluster.SynWeb)
         end
       finally
-        LeaveCriticalsection(frmDXCluster.csTelnet);
+        LeaveCriticalsection(frmDXCluster.csSpotWork);
         if dmData.DebugLevel>=1 then Writeln('Leave critical section TWebThread.Execute')
       end
     end
@@ -1983,7 +1996,7 @@ begin
                 SpacesFromRight(activator,12) + ' ' +
                 SpacesFromRight(info,28) + ' ' +
                 hhmm+'Z';
-        EnterCriticalsection(frmDXCluster.csTelnet);
+        EnterCriticalsection(frmDXCluster.csSpotWork);
         try
           if frmDXCluster.ShowPotaSpot(spot,reference,spotMode,sColor) then
           begin
@@ -1995,7 +2008,7 @@ begin
             Synchronize(@frmDXCluster.SynPota)
           end
         finally
-          LeaveCriticalsection(frmDXCluster.csTelnet)
+          LeaveCriticalsection(frmDXCluster.csSpotWork)
         end
       end
     finally
