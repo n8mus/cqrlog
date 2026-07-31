@@ -1897,16 +1897,18 @@ begin
 
   ini := TIniFile.Create(GetAppConfigDir(False)+'cqrlog_login.cfg');
   try
-    if ini.ReadString('Changelog','Version','') <> cVERSION then
-    begin
-      changelog := True;
-      ini.WriteString('Changelog','Version',cVERSION)
-    end
+    changelog := ini.ReadString('Changelog','Version','') <> cVERSION
   finally
     ini.Free
   end;
 
- if changelog then
+  //Mark this version's changelog as seen only AFTER the dialog has actually
+  //been shown, and only when there is a file to show. Stamping the flag
+  //up-front (as this used to) meant a missing or stale changelog.html - e.g.
+  //a binary deployed without its matching changelog - silently burned the one
+  //chance to display it: the popup never returns, and the only way back is
+  //hand-editing [Changelog] out of cqrlog_login.cfg.
+  if changelog and FileExistsUTF8(dmData.ShareDir+'changelog.html') then
   begin
     with TfrmChangelog.Create(Application) do
     try
@@ -1914,6 +1916,12 @@ begin
       ShowModal
     finally
       Free
+    end;
+    ini := TIniFile.Create(GetAppConfigDir(False)+'cqrlog_login.cfg');
+    try
+      ini.WriteString('Changelog','Version',cVERSION)
+    finally
+      ini.Free
     end
   end;
 
