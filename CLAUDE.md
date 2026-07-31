@@ -73,6 +73,14 @@ the wrong file:
   get error 3251 ("Fields cannot appear after a method or property
   definition"). Keep new fields grouped with existing fields, new method
   decls grouped with existing method decls.
+- **FPC initialized locals are STATIC**: `var T : TThread = nil;` inside a
+  procedure is initialized once at program start, *not* on each entry — it
+  keeps its value between calls (unlike Delphi/C locals). Combined with
+  `FreeOnTerminate` this is a use-after-free trap: an `if T = nil then
+  T := TThread.Create` guard re-uses a dangling pointer on every call after
+  the first, because the thread freed itself without nilling the variable.
+  `ConnectToWeb` had exactly this bug (fixed in 8ae9590). Either drop the
+  initializer and always create fresh, or nil the reference on termination.
 - **`.lfm` anchor chains**: components position via `AnchorSideTop.Control` /
   `Side = asrBottom` chains to a sibling, not the literal `Top` value (which
   is just a design-time snapshot). Before anchoring a new control to what
@@ -84,11 +92,37 @@ the wrong file:
 - **DX cluster spot pipeline**: any spot source (Web/Telnet/POTA) formats a
   line as `"DX de SPOTTER: FREQ CALL COMMENT TIMEZ"` and calls
   `TfrmDXCluster.ShowSpot` (`src/fDXCluster.pas`) for DXCC/worked-status
-  coloring, then `Synchronize`s under the `csTelnet` critical section to
-  append via `TColorMemo.AddLine`. Click-to-tune reuses the same text format:
-  `SpotDbClick` → `dmDXCluster.GetSplitSpot` → `frmNewQSO.NewQSOFromSpot`.
-  New spot sources should follow this exact pattern rather than inventing a
-  new UI path.
+  coloring, then `Synchronize`s to append via `TColorMemo.AddLine`.
+  Click-to-tune reuses the same text format: `SpotDbClick` →
+  `dmDXCluster.GetSplitSpot` → `frmNewQSO.NewQSOFromSpot`. New spot sources
+  should follow this pattern rather than inventing a new UI path.
+- **DX cluster locking — NEVER hold `csTelnet` across a `Synchronize`**
+  (8ae9590 fixed exactly that as a whole-app deadlock). `lReceive`, the
+  telnet `OnReceive` handler, runs on the **main thread** (it calls
+  `TelSpots.AddLine` and `NewQSOFromSpot` directly, no `Synchronize`) and
+  takes `csTelnet`. `Synchronize` only returns once the main loop services
+  it, so a worker holding `csTelnet` while an incoming spot makes the main
+  thread wait for that same lock deadlocks the pair permanently — no crash,
+  no recovery; the tell is the main thread in `futex_do_wait` with the
+  cluster socket's `Recv-Q` climbing (`ss -tanp | grep :23`). Two locks,
+  never nested: **`csTelnet`** guards only the `Spots`/`Chats` lists between
+  `lReceive` and `TTelThread` (take it, touch the list, release — no
+  `Synchronize` inside). **`csSpotWork`** serializes the render path
+  (`ShowSpot`/`ShowPotaSpot` + the shared `Th*` handoff globals + the
+  `Synchronize`) across the Tel/Web/POTA threads, and is safe to hold across
+  `Synchronize` *precisely because the main thread never takes it* — keep it
+  that way. It also serializes the three feeds' `dbDXC` access. A fourth
+  spot source belongs on `csSpotWork`.
+- **POTA polling is unconditional**: `FormShow` sets `tmrPota.Enabled := True`
+  and calls `ConnectToPota`, so opening the DX Cluster window fetches
+  `api.pota.app` immediately and every 60 s after, regardless of the active
+  tab or whether POTA is used at all. Deliberate (spots feed the band map,
+  which is its own window), but it means POTA-thread bugs bite telnet-only
+  users. Contrast `tmrSpotsTimer`, which fires the *web* source only while
+  its tab is active. The Orion SDR console does **not** consume cqrlog's
+  spots — it fetches POTA/cluster itself and only reads the cqrlog DB
+  (`LogbookIndex.cpp`) for worked-status coloring, so cqrlog's feeds exist
+  purely for cqrlog's own UI.
 - **Visible QSO grid columns** are wired in *two* separate places that must
   both be updated together: `TdmUtils.LoadVisibleColumnsConfiguration`
   (`src/dUtils.pas`, feeds the New QSO recent-contacts grid) and
