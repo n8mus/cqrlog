@@ -227,6 +227,7 @@ type
     LockScroll   : Boolean;
 
     procedure SendCommand(cmd : String);
+    function  TelnetConnected : Boolean;  //spot posting needs a live telnet
     procedure StopAllConnections;
     procedure ReloadSettings;
   end;
@@ -927,6 +928,11 @@ begin
       btnTelConnectClick(nil)
   end;
   frmNewQSO.ReturnToNewQSO
+end;
+
+function TfrmDXCluster.TelnetConnected : Boolean;
+begin
+  Result := lTelnet.Connected
 end;
 
 procedure TfrmDXCluster.tmrKeepAliveTimer(Sender: TObject);

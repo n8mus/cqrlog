@@ -180,6 +180,7 @@ type
     acTRXControl: TAction;
     btnCancel: TButton;
     btnClearQSO: TButton;
+    btnSpotDX: TButton;
     btnDXCCRef: TButton;
     btnQSLMgr: TButton;
     btnSave: TButton;
@@ -585,6 +586,7 @@ type
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure btnCancelClick(Sender: TObject);
     procedure btnClearQSOClick(Sender: TObject);
+    procedure btnSpotDXClick(Sender: TObject);
     procedure btnSaveClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormKeyPress(Sender: TObject; var Key: char);
@@ -3726,6 +3728,51 @@ begin
   ClearAll;
   if edtCall.CanFocus then
     edtCall.SetFocus
+end;
+
+procedure TfrmNewQSO.btnSpotDXClick(Sender: TObject);
+var
+  call, comment, line : String;
+  fMHz : Double;
+  FS   : TFormatSettings;
+begin
+  //Post the call in the form to the DX cluster (KE9NS "Callout" idea, done
+  //where the call and frequency already live — Jon 2026-08-01: spotting was
+  //too hard from the cluster window's raw command line). One InputQuery is
+  //both the comment editor and the confirmation; Cancel posts nothing.
+  FS := DefaultFormatSettings;
+  FS.DecimalSeparator := '.';
+  call := UpperCase(Trim(edtCall.Text));
+  if call = '' then
+  begin
+    ShowMessage('Nothing to spot — the callsign field is empty.');
+    exit
+  end;
+  fMHz := StrToFloatDef(
+            StringReplace(Trim(cmbFreq.Text), ',', '.', [rfReplaceAll]),
+            0, FS);
+  if fMHz <= 0 then fMHz := frmTRXControl.GetFreqMHz;
+  if fMHz <= 0 then
+  begin
+    ShowMessage('No frequency to spot — none in the form and the rig is '+
+                'not reporting one.');
+    exit
+  end;
+  if not frmDXCluster.TelnetConnected then
+  begin
+    ShowMessage('The DX Cluster is not connected — open the DX Cluster '+
+                'window and connect (telnet) first.');
+    exit
+  end;
+  comment := cmbMode.Text;
+  if not InputQuery('Spot ' + call + ' on ' +
+                    FormatFloat('0.0', fMHz * 1000.0, FS) + ' kHz',
+                    'Comment (OK posts the spot):', comment) then
+    exit;
+  line := 'DX ' + FormatFloat('0.0', fMHz * 1000.0, FS) + ' ' + call;
+  if Trim(comment) <> '' then
+    line := line + ' ' + Trim(comment);
+  frmDXCluster.SendCommand(line)   //echoes into the cluster window
 end;
 
 procedure TfrmNewQSO.btnCancelClick(Sender: TObject);

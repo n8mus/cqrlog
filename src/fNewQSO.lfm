@@ -4690,14 +4690,12 @@ object frmNewQSO: TfrmNewQSO
       end
       object btnClearQSO: TButton
         AnchorSideLeft.Control = btnSave
-        AnchorSideRight.Control = btnCancel
-        AnchorSideRight.Side = asrBottom
         AnchorSideBottom.Control = btnSave
         Left = 6
         Height = 30
         Top = 435
-        Width = 258
-        Anchors = [akLeft, akRight, akBottom]
+        Width = 152
+        Anchors = [akLeft, akBottom]
         BorderSpacing.Bottom = 5
         BorderSpacing.InnerBorder = 1
         Caption = 'Clear all fields (Ctrl+F2)'
@@ -4705,6 +4703,26 @@ object frmNewQSO: TfrmNewQSO
         OnClick = btnClearQSOClick
         ShowHint = True
         Hint = 'Clear all fields (start a fresh QSO)'
+      end
+      object btnSpotDX: TButton
+        AnchorSideLeft.Control = btnClearQSO
+        AnchorSideLeft.Side = asrBottom
+        AnchorSideRight.Control = btnCancel
+        AnchorSideRight.Side = asrBottom
+        AnchorSideBottom.Control = btnSave
+        Left = 164
+        Height = 30
+        Top = 435
+        Width = 100
+        Anchors = [akLeft, akRight, akBottom]
+        BorderSpacing.Left = 6
+        BorderSpacing.Bottom = 5
+        BorderSpacing.InnerBorder = 1
+        Caption = 'Spot DX'
+        TabOrder = 26
+        OnClick = btnSpotDXClick
+        ShowHint = True
+        Hint = 'Post this callsign + frequency to the DX cluster'
       end
       object btnCancel: TButton
         AnchorSideTop.Control = btnSave
