@@ -7496,6 +7496,14 @@ begin
     exit;
   if call <> edtCall.Text then
   begin
+    //A DIFFERENT station: start from a clean form, exactly like the LOG
+    //button's CQRNEWQSO. Without this, everything the callbook does not
+    //explicitly overwrite - the previous spot's park, grid, name, any
+    //typed comment - bleeds into the new QSO (live-found clicking through
+    //a 20 m POTA pileup: only the callsign was changing). Re-clicking the
+    //SAME call stays a no-clear on purpose so a stray double-click never
+    //wipes an RST the operator already typed.
+    ClearAll;
     edtCall.Text := call;
     c_lock := False;
     edtCallExit(nil)      //callbook + DXCC + azimuth, async - no save
