@@ -889,7 +889,8 @@ uses dUtils, fChangeLocator, fChangeOperator, dDXCC, dDXCluster, dData, fMain, f
      fLongNote, fRefCall, fKeyTexts, fCWType, fExportProgress, fPropagation, fCallAttachment,
      fQSLViewer, fCWKeys, uMyIni, fDBConnect, fAbout, uVersion, fChangelog,
      fBigSquareStat, fSCP, fRotControl, fLogUploadStatus, fRbnMonitor, fException, fCommentToCall,
-     fRemind, fContest, fXfldigi, dMembership, dSatellite, fCountyStat,fFreq;
+     fRemind, fContest, fXfldigi, dMembership, dSatellite, fCountyStat,fFreq,
+     fCallbook;
 
 
 
@@ -7506,7 +7507,17 @@ begin
     ClearAll;
     edtCall.Text := call;
     c_lock := False;
-    edtCallExit(nil)      //callbook + DXCC + azimuth, async - no save
+    edtCallExit(nil);     //callbook + DXCC + azimuth, async - no save
+    //The floating Callbook window (often docked beside New QSO) only
+    //refreshes from its own Search button - follow the console click so
+    //it never shows the PREVIOUS spot's operator next to the new call
+    //(live-found working a POTA pileup).
+    if Assigned(frmCallbook) and frmCallbook.Visible
+       and (frmCallbook.edtCall.Text <> call) then
+    begin
+      frmCallbook.edtCall.Text := call;
+      frmCallbook.btnSearchClick(nil)
+    end
   end;
   if park <> '' then
     SetHuntedPark(park);
