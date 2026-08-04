@@ -27,7 +27,6 @@ type TRigControl = class
     RigctldConnect : TLTCPComponent;
     rigProcess     : TProcess;
     tmrRigPoll     : TTimer;
-    tmrReconnect   : TTimer;   //auto-reconnect after rigctld goes away
   private
     fRigCtldPath   : String;
     fRigCtldArgs   : String;
@@ -113,7 +112,6 @@ type TRigControl = class
     procedure OnConnectRigctldConnect(aSocket: TLSocket);
     procedure OnErrorRigctldConnect(const msg: string; aSocket: TLSocket);
     procedure OnRigPollTimer(Sender: TObject);
-    procedure OnReconnectTimer(Sender: TObject);
 
     procedure HamlibErrors(e:string);
     procedure InitReceive(var Imsg:string;Hit:boolean);
@@ -240,9 +238,6 @@ begin
   RigctldConnect       := TLTCPComponent.Create(nil);
   rigProcess           := TProcess.Create(nil);
   tmrRigPoll           := TTimer.Create(nil);
-  tmrReconnect         := TTimer.Create(nil);
-  tmrReconnect.Enabled := False;
-  tmrReconnect.Interval:= 5000;
   tmrRigPoll.Enabled   := False;
   VfoStr               := ''; //defaults to non-"--vfo" (legacy) mode
   fPowerON             := false;  //we do this via rigctld startup parameter autopower_on
@@ -280,7 +275,6 @@ begin
   fPtt                 := '';
   fPttTail             := 0;
   tmrRigPoll.OnTimer       := @OnRigPollTimer;
-  tmrReconnect.OnTimer     := @OnReconnectTimer;
   RigctldConnect.OnReceive := @OnReceivedRigctldConnect;
   RigctldConnect.OnConnect := @OnConnectRigctldConnect;
   RigctldConnect.OnError   := @OnErrorRigctldConnect;
@@ -911,7 +905,6 @@ begin
                                 Writeln('Rig/rigctld did not respond to command within timeout!');
                     tmrRigPoll.Enabled  := False;
                     fResponseTimeout := true;
-                    tmrReconnect.Enabled := True;   //see OnErrorRigctldConnect
                   end;
                 if fDebugMode then
                                 Writeln('Response waited: ',DateTimeToUnix(now)-TimeOutCounter,'sec');
@@ -1226,30 +1219,8 @@ begin
     end;    //end of Allowcommand=0
    tmrRigPoll.Enabled:=true;
 end;
-//Knocks every 5 s after the rigctld link dies. A successful Connect
-//fires OnConnectRigctldConnect, which re-runs the whole init state
-//machine (chk_vfo/dump_state, poll timer) exactly like the first
-//connect - nothing here needs to know how to initialize a rig.
-procedure TRigControl.OnReconnectTimer(Sender : TObject);
-begin
-  if RigctldConnect.Connected then
-  begin
-    tmrReconnect.Enabled := False;
-    exit
-  end;
-  if fDebugMode then
-    Writeln('Reconnect: trying rigctld @ ',fRigCtldHost,':',fRigCtldPort);
-  ErrorRigctldConnect := False;
-  ConnectionDone      := False;
-  InitDone            := False;
-  fResponseTimeout    := False;      //unblock SendPoll for the fresh link
-  RigctldConnect.Disconnect(True);   //clear any half-dead socket first
-  RigctldConnect.Connect(fRigCtldHost, fRigCtldPort)
-end;
-
 procedure TRigControl.OnConnectRigctldConnect(aSocket: TLSocket);
 Begin
-    tmrReconnect.Enabled := False;   //link is back; init machine takes over
     tmrRigPoll.Enabled  := False;
     if fDebugMode then
                    Writeln('Connecting to rigctld Poll (OnConnect)');
@@ -1298,10 +1269,6 @@ begin
    Begin
      tmrRigPoll.Enabled  := False;
      fResponseTimeout := true;
-     //The link died (rigctld/console gone) - keep knocking until it is
-     //back instead of latching dead until the app restarts (live-found:
-     //a console restart stranded cqrlog until IT was restarted too).
-     tmrReconnect.Enabled := True;
    end;
 end;
 function TRigControl.SendPoll(msg:string):boolean;
@@ -1322,8 +1289,6 @@ var
   excode : Integer = 0;
 begin
   tmrRigPoll.Enabled := False;
-  tmrReconnect.Enabled := False;
-  FreeAndNil(tmrReconnect);
   sleep(fRigPoll);
   RigctldConnect.Disconnect(true);
   sleep(100);
