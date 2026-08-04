@@ -199,6 +199,7 @@ type
     function GetFreqFromModeBand(band : Integer; smode : String) : String;
     function GetModeFreqNewQSO(var mode, freq : String) : Boolean;
     function GetBandWidthForMode(mode : String) : Integer;
+    function SameModeForWidth(m1, m2 : String) : Boolean;
     function GetModeBand(var mode, band : String) : Boolean;
     function InitializeRig : Boolean;
     function GetFreqHz : Double;
@@ -484,6 +485,19 @@ begin
     Result := 4;
   if mode = 'WFM' then
     Result := 4;
+end;
+
+//Width-equivalence for the follow-the-spot rule: CW/CWR are one mode,
+//and both sidebands are "SSB" as far as the filter is concerned.
+function TfrmTRXControl.SameModeForWidth(m1, m2 : String) : Boolean;
+  function Norm(m : String) : String;
+  begin
+    if (m = 'CWR') then m := 'CW';
+    if (m = 'LSB') or (m = 'USB') then m := 'SSB';
+    Result := m
+  end;
+begin
+  Result := Norm(m1) = Norm(m2)
 end;
 
 function TfrmTRXControl.GetBandWidthForMode(mode : String) : Integer;
@@ -1601,7 +1615,6 @@ begin
   if mode='' then        //if mode is empty change freq using existing mode
      mode:=GetActualMode;
 
-  bandwidth := GetBandWidthForMode(mode);
   f := StrToFloat(freq);
   if mode = 'SSB' then
   begin
@@ -1614,6 +1627,19 @@ begin
         mode := 'LSB';
     end;
   end;
+
+  //Follow-the-spot rule: impose the per-mode table width only when the
+  //mode actually CHANGES. Clicking a spot in the mode you are already
+  //in must not touch a filter the operator set by hand - the SSB table
+  //default (1800) was silently narrowing a hand-set 2800 Hz filter on
+  //every same-mode POTA click (live-found). -1 is the existing "keep
+  //current bandwidth" sentinel: hamlib rigctld reads it as NOCHANGE and
+  //the console's rigctld ignores non-positive widths. CW and CWR count
+  //as the same mode here.
+  if SameModeForWidth(mode, GetActualMode) then
+    bandwidth := -1
+  else
+    bandwidth := GetBandWidthForMode(mode);
 
   SetFreqModeBandWidth(f, mode, bandwidth);
 end;
