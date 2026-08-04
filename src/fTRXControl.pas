@@ -19,7 +19,7 @@ interface
 uses
   Classes, SysUtils, LResources, Forms, Controls, Graphics, Dialogs, StdCtrls,
   ExtCtrls, inifiles, process, lcltype, Buttons, Menus, ActnList, dynlibs,
-  uRigControl, Types, StrUtils, ComCtrls, Math;
+  uRigControl, Types, StrUtils, ComCtrls, Math, blcksock;
 
 type
 
@@ -186,6 +186,8 @@ type
 
   public
     radio : TRigControl;
+    tmrReconnect : TTimer;     //form-level auto-reconnect (survives radio free)
+    fAutoReconnect : Boolean;  //armed once a rig has connected at least once
     AutoMode : Boolean;
     infosetstage : Integer;
     infosetfreq : String;
@@ -202,6 +204,8 @@ type
     function SameModeForWidth(m1, m2 : String) : Boolean;
     function GetModeBand(var mode, band : String) : Boolean;
     function InitializeRig : Boolean;
+    procedure OnReconnectTimer(Sender : TObject);
+    function  RigctldPortOpen : Boolean;   //fast non-blocking probe
     function GetFreqHz : Double;
     function GetFreqkHz : Double;
     function GetFreqMHz : Double;
@@ -1210,10 +1214,20 @@ procedure TfrmTRXControl.FormCreate(Sender : TObject);
 begin
   Radio := nil;
   AutoMode := True;
+  fAutoReconnect := False;
+  tmrReconnect := TTimer.Create(Self);
+  tmrReconnect.Interval := 3000;
+  tmrReconnect.OnTimer  := @OnReconnectTimer;
+  tmrReconnect.Enabled  := True;   //idle until a rig is lost; see handler
 end;
 
 procedure TfrmTRXControl.FormDestroy(Sender : TObject);
 begin
+  if Assigned(tmrReconnect) then
+  begin
+    tmrReconnect.Enabled := False;
+    FreeAndNil(tmrReconnect)
+  end;
   if dmData.DebugLevel >= 1 then Writeln('Closing TRXControl window');
 end;
 
@@ -1239,6 +1253,49 @@ begin
     frmNewQSO.ReturnToNewQSO;
     key := 0;
   end;
+end;
+
+//Fast, non-blocking "is rigctld listening?" check. The reconnect timer
+//uses this so InitializeRig - which blocks up to 10 s and pops its own
+//error dialog on a dead port - is only ever called once the console
+//(the rig master) is actually back. No probe = popup spam + UI freezes
+//every cycle while the console is down.
+function TfrmTRXControl.RigctldPortOpen : Boolean;
+var
+  sock : TTCPBlockSocket;
+  host : String;
+  port : Integer;
+begin
+  Result := False;
+  host := cqrini.ReadString('TRX' + RigInUse, 'host', 'localhost');
+  port := cqrini.ReadInteger('TRX' + RigInUse, 'RigCtldPort', 4532);
+  if (host = '') then exit;
+  sock := TTCPBlockSocket.Create;
+  try
+    sock.ConnectionTimeout := 700;   //ms; refused/absent returns at once
+    sock.Connect(host, IntToStr(port));
+    Result := (sock.LastError = 0);
+    sock.CloseSocket
+  finally
+    sock.Free
+  end
+end;
+
+//Hands-free reconnect after the rig link dies (a console restart frees
+//`radio` via SynTRX's timeout path). This lives on the FORM, not on the
+//radio object - the radio is deliberately destroyed on timeout, which is
+//why an earlier reconnect timer that lived inside it crashed on freed
+//memory. Only pure client mode (RunRigCtld=False) auto-reconnects; a
+//cqrlog-spawned rigctld is a different lifecycle. Nothing happens while
+//a rig is assigned, so the probe runs only in the lost state.
+procedure TfrmTRXControl.OnReconnectTimer(Sender : TObject);
+begin
+  if Assigned(radio) then exit;               //have a rig; nothing to do
+  if not fAutoReconnect then exit;            //never connected yet
+  if cqrini.ReadBool('TRX' + RigInUse, 'RunRigCtld', False) then exit;
+  if frmNewQSO.cbOffline.Checked then exit;   //operator chose offline
+  if RigctldPortOpen then
+    InitializeRig                             //server is back: rebuild
 end;
 
 function TfrmTRXControl.InitializeRig : Boolean;
@@ -1314,6 +1371,7 @@ begin
   tmrRadio.Interval     := radio.RigPoll;
   tmrRadio.Enabled      := True;
   Result                := True;
+  fAutoReconnect        := True;   //from now on, a lost link self-heals
 
   LoadUsrButtonCaptions;
 
