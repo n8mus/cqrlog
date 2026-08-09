@@ -313,11 +313,22 @@ begin
   begin
     if (radio.ResponseTimeout ) then
          Begin
+          //The rig stopped answering - almost always the console (our rig
+          //master on :4532) being closed while cqrlog is open. A blocking
+          //ShowMessage here froze the whole cqrlog GUI until it was
+          //dismissed: the "no connection" lock-up. fAutoReconnect is
+          //already armed, so OnReconnectTimer silently rebuilds the rig the
+          //moment :4532 returns. Drop to a quiet, non-modal lost state
+          //instead of a dialog - no freeze, hands-free recovery, and the
+          //operator keeps logging in the meantime.
           FreeAndNil(radio);
-          ShowMessage('Radio did not respond within timeout.'+lineEnding+
-                      'Check cables and that Radio power is ON'+lineEnding+
-                      'After that try NewQSO/File/Refresh TRX/ROT control.'+
-                      '(You may need to adjust preferences/TRXControl/Poll timeout)');
+          tmrRadio.Enabled := False;
+          lblFreq.Caption  := empty_freq;
+          ClearBandButtonsColor;
+          ClearModeButtonsColor;
+          if (dmData.DebugLevel > 0) or cqrini.ReadBool('TRX', 'Debug', False) then
+            Writeln('TRXControl: rig response timeout - radio dropped, awaiting reconnect on :',
+                    cqrini.ReadInteger('TRX' + RigInUse, 'RigCtldPort', 4532));
           exit;
          end;
 
