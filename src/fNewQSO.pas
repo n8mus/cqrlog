@@ -2244,9 +2244,11 @@ begin
            Continue
          end;
          //check data.
-         //N1MM contact info
+         //N1MM contact info. Not1MM (the Linux contest logger) speaks the same
+         //broadcast but signs itself <app>NOT1MM</app>, so match either app.
          if (pos('<CONTACTINFO>',Uppercase(Buf))>0 )
-           and(pos('<APP>N1MM',Uppercase(Buf))>0 ) then
+           and( (pos('<APP>N1MM',Uppercase(Buf))>0)
+             or (pos('<APP>NOT1MM',Uppercase(Buf))>0) ) then
                                                  Begin
                                                   Buf:=dmUtils.FromN1MMToAdif(Buf);
                                                   if not FromConsole then lblCall.Caption := 'rmt ADIF N1MM+';

@@ -1719,9 +1719,19 @@ Begin
                   'OPERATOR'      : adi:=adi+'<'+StringToADIF('OPERATOR',Nval);
                   'MODE'          : adi:=adi+'<'+StringToADIF('MODE',Nval);
                   'SNT'           : adi:=adi+'<'+StringToADIF('RST_SENT',Nval);
-                  'SNTNR'         : adi:=adi+'<'+StringToADIF('STX',Nval);
+                  //Serial-number contests send a number; exchange contests send
+                  //text (CWT: "NAME 1234"). A non-numeric exchange in STX/SRX
+                  //would be dropped as a bad serial, so route it to the string
+                  //tags instead - that is where cqrlog shows an exchange anyway.
+                  'SNTNR'         : if TryStrToCurr(Nval,Fdes) then
+                                       adi:=adi+'<'+StringToADIF('STX',Nval)
+                                     else
+                                       adi:=adi+'<'+StringToADIF('STX_STRING',Nval);
                   'RCV'           : adi:=adi+'<'+StringToADIF('RST_RCVD',Nval);
-                  'RCVNR'         : adi:=adi+'<'+StringToADIF('SRX',Nval);
+                  'RCVNR'         : if TryStrToCurr(Nval,Fdes) then
+                                       adi:=adi+'<'+StringToADIF('SRX',Nval)
+                                     else
+                                       adi:=adi+'<'+StringToADIF('SRX_STRING',Nval);
                   'EXCHANGE1'     :                   ; //what is this?   STX_STRING +  SRX_STRING ?
                   'MISCTEXT'      : adi:=adi+'<'+StringToADIF('SRX_STRING',Nval);  //seems to be here, why ?
                   'GRIDSQUARE'    : adi:=adi+'<'+StringToADIF('GRIDSQUARE',Nval);
@@ -1729,17 +1739,28 @@ Begin
                   'NAME'          : adi:=adi+'<'+StringToADIF('NAME',Nval);
                   'POWER'         : adi:=adi+'<'+StringToADIF('TX_PWR',Nval);
 
-                  'ISORIGINAL'    : IsOriginal := ( Uppercase(Nval) = 'TRUE');
+                  //N1MM+ says True/False here, Not1MM says 1/0 - both mean
+                  //"this station worked it" rather than a relayed copy.
+                  'ISORIGINAL'    : IsOriginal := (Uppercase(Nval) = 'TRUE') or (Nval = '1');
 
                 end; //case
             end; //Anode not nil
            end;//nodelist cocunt
-          if ((Rmhz='') and (mhz<>'')) or (Rmhz=mhz) then   // no RX_freq or RX=TX then only FREQ tag
-            adi:=adi+'<'+StringToADIF('FREQ',mhz)
-           else
+          //Not1MM only refreshes its broadcast frequency when the VFO or mode
+          //CHANGES, so a station running on one frequency sends empty txfreq.
+          //Emitting <FREQ:0> then blanks the field and btnSave stops with a
+          //"bad frequency" dialog mid-contest; leaving the tag out keeps
+          //whatever New QSO already has from its own rig control (the same
+          //radio), which is the right number anyway.
+          if mhz<>'' then
             begin
-              adi:=adi+'<'+StringToADIF('FREQ_RX',Rmhz); //if split then both
-              adi:=adi+'<'+StringToADIF('FREQ',mhz);
+              if (Rmhz='') or (Rmhz=mhz) then   // no RX_freq or RX=TX then only FREQ tag
+                adi:=adi+'<'+StringToADIF('FREQ',mhz)
+               else
+                begin
+                  adi:=adi+'<'+StringToADIF('FREQ_RX',Rmhz); //if split then both
+                  adi:=adi+'<'+StringToADIF('FREQ',mhz);
+                end;
             end
           end; //assigned nodelist
         end; //assigned Astream
