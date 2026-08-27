@@ -19,7 +19,7 @@ uses
   Classes, SysUtils, LResources, Forms, Controls, Dialogs, StdCtrls, iniFiles,
   DBGrids, aziloc, azidis3, process, DB, sqldb, Grids, Buttons, spin, colorbox,
   Menus, Graphics, Math, LazHelpHTML, lNet, DateUtils, fileutil, httpsend,
-  sqlscript, BaseUnix, Unix, LazFileUtils, LazUTF8, RegExpr,
+  sqlscript, BaseUnix, Unix, LazFileUtils, LazUTF8, RegExpr, base64,
   laz2_XMLRead, laz2_DOM, fpjson,jsonparser,StrUtils,ComCtrls;
 
   //"XMLRead, DOM," replced. These have system encoding. "laz2_" ones have full UTF-8 Unicode support
@@ -250,7 +250,10 @@ type
         function  IsNonAsciiChrs(s:string):Boolean;
         function  IsQSLViaValid(text : String) : Boolean;
         function  IsTimeOK(time : String) : Boolean;
+        function  FileToDataUri(const fname, mime : String) : String;
         function  IsValidFileName(const fileName : string) : boolean;
+        function  JsNumber(value : Currency; digits : Integer = 6) : String;
+        function  JsSafeText(const text : String) : String;
         function  KmToMiles(qra : Double) : Double;
         function  LoadVisibleColumnsConfiguration :  TColumnVisibleArray;
         function  ModeToCqr(InMode,InSubmode:String;dbg:boolean=False):String;
@@ -332,6 +335,8 @@ type
         procedure SaveDBGridInForm(aForm: TForm);
         procedure SaveLog(Text: string);
         procedure SaveWindowPos(a: TForm);
+        procedure ShowGlobeInBrowser(myLat, myLon, dxLat, dxLon: Currency;
+                                     myCall, myLoc, dxCall, dxLoc, dist, azim, note: String);
         procedure ShowHamQTHInBrowser(call : String);
         procedure ShowLocatorMapInBrowser(locator: string);
         procedure ShowQRZInBrowser(call: string);
@@ -4009,6 +4014,331 @@ begin
   end;
 end;
 
+function TdmUtils.JsNumber(value : Currency; digits : Integer = 6) : String;
+begin
+  //JavaScript wants a dot no matter what the user locale does
+  Result := FloatToStrF(value, ffFixed, 15, digits);
+  Result := StringReplace(Result, FormatSettings.DecimalSeparator, '.', [rfReplaceAll])
+end;
+
+function TdmUtils.FileToDataUri(const fname, mime : String) : String;
+var
+  f : TMemoryStream;
+  s : String;
+begin
+  //three.js asks for its textures with crossOrigin=anonymous, and a file:// page
+  //is its own opaque origin in both Firefox and Chrome, so a plain <img src>
+  //next to the page is refused. Inlining the image sidesteps CORS completely.
+  Result := '';
+  f := TMemoryStream.Create;
+  try
+    try
+      f.LoadFromFile(fname);
+      SetLength(s, f.Size);
+      if f.Size > 0 then
+        Move(f.Memory^, s[1], f.Size);
+      Result := 'data:' + mime + ';base64,' + EncodeStringBase64(s)
+    except
+      on e : Exception do
+        if dmData.DebugLevel >= 1 then
+          Writeln('Could not inline ',fname,': ',e.Message)
+    end
+  finally
+    f.Free
+  end
+end;
+
+function TdmUtils.JsSafeText(const text : String) : String;
+var
+  i : Integer;
+begin
+  //callsigns/locators only - keeps quotes and tags out of the generated page
+  Result := '';
+  for i := 1 to Length(text) do
+    if text[i] in ['A'..'Z','a'..'z','0'..'9','/','-','_','.',',',' ','+','(',')'] then
+      Result := Result + text[i]
+end;
+
+const
+  cGlobeTemplate : String =
+    '<!DOCTYPE html>' + LineEnding +
+    '<html lang="en">' + LineEnding +
+    '<head>' + LineEnding +
+    '<meta charset="utf-8">' + LineEnding +
+    '<title>@@DXCALL@@ - CQRLog globe</title>' + LineEnding +
+    '<style>' + LineEnding +
+    '  html,body { margin:0; padding:0; height:100%; background:#000; overflow:hidden;' + LineEnding +
+    '              font-family:"DejaVu Sans",sans-serif; color:#e8e8e8; }' + LineEnding +
+    '  #globe { position:absolute; inset:0; }' + LineEnding +
+    '  #info { position:absolute; top:12px; left:12px; z-index:10; padding:10px 14px;' + LineEnding +
+    '          background:rgba(10,14,22,.78); border:1px solid #2c3a4d; border-radius:6px;' + LineEnding +
+    '          font-size:13px; line-height:1.45; max-width:19em; }' + LineEnding +
+    '  #info h1 { margin:0 0 4px; font-size:19px; letter-spacing:.5px; color:#ff8a6a; }' + LineEnding +
+    '  #info .me { color:#7cf07c; }' + LineEnding +
+    '  #info .k { color:#8fa6bf; display:inline-block; min-width:5.2em; }' + LineEnding +
+    '  #info .note { color:#c9a227; font-size:11px; margin-top:6px; }' + LineEnding +
+    '  #btns { position:absolute; bottom:12px; left:12px; z-index:10; }' + LineEnding +
+    '  #btns button { background:rgba(10,14,22,.78); color:#dfe6ee; border:1px solid #2c3a4d;' + LineEnding +
+    '                 border-radius:5px; padding:5px 11px; margin-right:6px; font-size:12px;' + LineEnding +
+    '                 cursor:pointer; }' + LineEnding +
+    '  #btns button:hover { background:#1b2636; }' + LineEnding +
+    '  #btns button.off { color:#68727f; }' + LineEnding +
+    '  #hint { position:absolute; bottom:14px; right:14px; z-index:10; font-size:11px; color:#7e8896; }' + LineEnding +
+    '</style>' + LineEnding +
+    '</head>' + LineEnding +
+    '<body>' + LineEnding +
+    '<div id="globe"></div>' + LineEnding +
+    '<div id="info">' + LineEnding +
+    '  <h1>@@DXCALL@@</h1>' + LineEnding +
+    '  <div><span class="k">Grid</span>@@DXLOC@@</div>' + LineEnding +
+    '  <div><span class="k">Lat/Lon</span>@@DXLATTXT@@ @@DXLONTXT@@</div>' + LineEnding +
+    '  <div><span class="k">Distance</span>@@DIST@@</div>' + LineEnding +
+    '  <div><span class="k">Beam</span>@@AZIM@@&deg; SP / @@AZIMLP@@&deg; LP</div>' + LineEnding +
+    '  <div style="margin-top:6px"><span class="k">Home</span><span class="me">@@MYCALL@@</span> @@MYLOC@@</div>' + LineEnding +
+    '  <div class="note">@@NOTE@@</div>' + LineEnding +
+    '</div>' + LineEnding +
+    '<div id="btns">' + LineEnding +
+    '  <button onclick="spin()">Spin</button>' + LineEnding +
+    '  <button onclick="aimPath()">Path</button>' + LineEnding +
+    '  <button onclick="aimDx()">DX</button>' + LineEnding +
+    '  <button onclick="aimMe()">Home</button>' + LineEnding +
+    '  <button id="bBorders" onclick="toggleBorders(this)">Borders</button>' + LineEnding +
+    '  <button id="bNames" onclick="toggleNames(this)">Names</button>' + LineEnding +
+    '</div>' + LineEnding +
+    '<div id="hint">drag to rotate &middot; scroll to zoom</div>' + LineEnding +
+    '<script src="@@GLOBEJS@@"></script>' + LineEnding +
+    '<script>' + LineEnding +
+    'var MY = { lat: @@MYLAT@@, lng: @@MYLON@@, call: "@@MYCALL@@" };' + LineEnding +
+    'var DX = { lat: @@DXLAT@@, lng: @@DXLON@@, call: "@@DXCALL@@" };' + LineEnding +
+    'var WORLD = @@COUNTRIES@@;' + LineEnding +
+    '' + LineEnding +
+    'var stations = [' + LineEnding +
+    '  { lat: MY.lat, lng: MY.lng, size: 0.9, color: "#4cff4c", label: MY.call,' + LineEnding +
+    '    txt: 1.7, dot: 0.35, alt: 0.016 },' + LineEnding +
+    '  { lat: DX.lat, lng: DX.lng, size: 1.1, color: "#ff5a3c", label: DX.call,' + LineEnding +
+    '    txt: 1.7, dot: 0.35, alt: 0.016 }' + LineEnding +
+    '];' + LineEnding +
+    '' + LineEnding +
+    'var showBorders = true, showNames = true, minName = 0;' + LineEnding +
+    '' + LineEnding +
+    'function countryLabels() {' + LineEnding +
+    '  if (!showNames) return [];' + LineEnding +
+    '  return WORLD.labels.filter(function (c) { return c.s >= minName; }).map(function (c) {' + LineEnding +
+    '    return { lat: c.lat, lng: c.lng, label: c.n, color: "rgba(226,238,252,.72)",' + LineEnding +
+    '             txt: c.s * 0.95, dot: 0, alt: 0.006 };' + LineEnding +
+    '  });' + LineEnding +
+    '}' + LineEnding +
+    'function paintLabels() { world.labelsData(stations.concat(countryLabels())); }' + LineEnding +
+    '' + LineEnding +
+    'var world = Globe()' + LineEnding +
+    '  (document.getElementById("globe"))' + LineEnding +
+    '  .globeImageUrl("@@TEXTURE@@")' + LineEnding +
+    '  .backgroundColor("#000008")' + LineEnding +
+    '  .showAtmosphere(true)' + LineEnding +
+    '  .atmosphereColor("#6fb3ff")' + LineEnding +
+    '  .pointsData(stations)' + LineEnding +
+    '  .pointLat("lat").pointLng("lng").pointColor("color")' + LineEnding +
+    '  .pointAltitude(0.012).pointRadius("size")' + LineEnding +
+    '  .labelLat("lat").labelLng("lng").labelText("label").labelColor("color")' + LineEnding +
+    '  .labelSize("txt").labelDotRadius("dot").labelAltitude("alt").labelResolution(2)' + LineEnding +
+    '  .polygonsData(WORLD.features)' + LineEnding +
+    '  .polygonCapColor(function () { return "rgba(0,0,0,0)"; })' + LineEnding +
+    '  .polygonSideColor(function () { return "rgba(0,0,0,0)"; })' + LineEnding +
+    '  .polygonStrokeColor(function () { return "rgba(226,238,252,.55)"; })' + LineEnding +
+    '  .polygonAltitude(0.004)' + LineEnding +
+    '  .polygonLabel(function (d) { return d.properties.n; })' + LineEnding +
+    '  .arcsData([{ sLat: MY.lat, sLng: MY.lng, eLat: DX.lat, eLng: DX.lng }])' + LineEnding +
+    '  .arcStartLat("sLat").arcStartLng("sLng").arcEndLat("eLat").arcEndLng("eLng")' + LineEnding +
+    '  .arcColor(function () { return ["#4cff4c", "#ffd24c", "#ff5a3c"]; })' + LineEnding +
+    '  .arcStroke(0.55)' + LineEnding +
+    '  .arcAltitudeAutoScale(0.45);' + LineEnding +
+    '' + LineEnding +
+    'world.controls().autoRotateSpeed = 0.35;' + LineEnding +
+    '' + LineEnding +
+    'function toggleBorders(b) {' + LineEnding +
+    '  showBorders = !showBorders;' + LineEnding +
+    '  b.className = showBorders ? "" : "off";' + LineEnding +
+    '  world.polygonsData(showBorders ? WORLD.features : []);' + LineEnding +
+    '}' + LineEnding +
+    'function toggleNames(b) {' + LineEnding +
+    '  showNames = !showNames;' + LineEnding +
+    '  b.className = showNames ? "" : "off";' + LineEnding +
+    '  paintLabels();' + LineEnding +
+    '}' + LineEnding +
+    '' + LineEnding +
+    'function rad(d) { return d * Math.PI / 180; }' + LineEnding +
+    'function midPoint(a, b) {' + LineEnding +
+    '  var f1 = rad(a.lat), l1 = rad(a.lng), f2 = rad(b.lat), l2 = rad(b.lng);' + LineEnding +
+    '  var bx = Math.cos(f2) * Math.cos(l2 - l1), by = Math.cos(f2) * Math.sin(l2 - l1);' + LineEnding +
+    '  var lat = Math.atan2(Math.sin(f1) + Math.sin(f2),' + LineEnding +
+    '                       Math.sqrt(Math.pow(Math.cos(f1) + bx, 2) + by * by));' + LineEnding +
+    '  var lng = l1 + Math.atan2(by, Math.cos(f1) + bx);' + LineEnding +
+    '  return { lat: lat * 180 / Math.PI, lng: ((lng * 180 / Math.PI) + 540) % 360 - 180 };' + LineEnding +
+    '}' + LineEnding +
+    'function angDist(a, b) {' + LineEnding +
+    '  var f1 = rad(a.lat), f2 = rad(b.lat), df = rad(b.lat - a.lat), dl = rad(b.lng - a.lng);' + LineEnding +
+    '  var h = Math.sin(df / 2) * Math.sin(df / 2) +' + LineEnding +
+    '          Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) * Math.sin(dl / 2);' + LineEnding +
+    '  return 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)) * 180 / Math.PI;' + LineEnding +
+    '}' + LineEnding +
+    '' + LineEnding +
+    'var mid = midPoint(MY, DX);' + LineEnding +
+    'var span = angDist(MY, DX);' + LineEnding +
+    'var alt = Math.max(1.6, Math.min(4.2, 0.9 + span / 60));' + LineEnding +
+    '' + LineEnding +
+    'function aimPath() { world.pointOfView({ lat: mid.lat, lng: mid.lng, altitude: alt }, 900); }' + LineEnding +
+    'function aimDx()   { world.pointOfView({ lat: DX.lat, lng: DX.lng, altitude: 1.1 }, 900); }' + LineEnding +
+    'function aimMe()   { world.pointOfView({ lat: MY.lat, lng: MY.lng, altitude: 1.1 }, 900); }' + LineEnding +
+    'function spin()    { var c = world.controls(); c.autoRotate = !c.autoRotate; }' + LineEnding +
+    '' + LineEnding +
+    '// thin the country names out when zoomed away, the way a paper map does' + LineEnding +
+    'function nameFloor(a) { return a > 2.2 ? 0.85 : (a > 1.3 ? 0.6 : (a > 0.7 ? 0.42 : 0)); }' + LineEnding +
+    'minName = nameFloor(alt);' + LineEnding +
+    'world.onZoom(function (pov) {' + LineEnding +
+    '  var f = nameFloor(pov.altitude);' + LineEnding +
+    '  if (f !== minName) { minName = f; paintLabels(); }' + LineEnding +
+    '});' + LineEnding +
+    '' + LineEnding +
+    'paintLabels();' + LineEnding +
+    'aimPath();' + LineEnding +
+    'window.addEventListener("resize", function () {' + LineEnding +
+    '  world.width(window.innerWidth); world.height(window.innerHeight);' + LineEnding +
+    '});' + LineEnding +
+    '</script>' + LineEnding +
+    '</body>' + LineEnding +
+    '</html>';
+
+procedure TdmUtils.ShowGlobeInBrowser(myLat, myLon, dxLat, dxLon: Currency;
+                                      myCall, myLoc, dxCall, dxLoc, dist, azim, note: String);
+
+  procedure SyncAsset(const src, dst, name : String);
+  begin
+    if (not FileExistsUTF8(dst+name)) or (FileAgeUTF8(dst+name) < FileAgeUTF8(src+name)) then
+      FileCopy(src+name, dst+name)
+  end;
+
+  function CoordText(value : Currency; const pos, neg : String) : String;
+  begin
+    if value < 0 then
+      Result := JsNumber(-value,2) + neg
+    else
+      Result := JsNumber(value,2) + pos
+  end;
+
+var
+  AProcess   : TProcess;
+  l          : TStringList;
+  html,dir,
+  src,page,tex,
+  world,
+  jsRef,texRef,
+  ResultFile : String;
+begin
+  dir := dmData.HomeDir + 'globe' + PathDelim;
+  if not DirectoryExistsUTF8(dir) then
+    CreateDirUTF8(dir);
+  src := dmData.ShareDir + 'globe' + PathDelim;
+
+  //a file:// page may only load what sits next to it, so the assets are copied
+  //out of the share dir into the user's own globe dir; without them we still
+  //work, but then the libraries come from the net
+  jsRef  := 'https://unpkg.com/globe.gl@2.46.2/dist/globe.gl.min.js';
+  texRef := 'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg';
+  if FileExistsUTF8(src+'globe.gl.min.js') and FileExistsUTF8(src+'earth-blue-marble.jpg') then
+  begin
+    SyncAsset(src, dir, 'globe.gl.min.js');
+    SyncAsset(src, dir, 'earth-blue-marble.jpg')
+  end;
+  if FileExistsUTF8(src+'countries.json') then
+    SyncAsset(src, dir, 'countries.json');
+  //assets may also have been dropped straight into the user's globe dir.
+  //the script may be loaded from beside the page, the texture may not - it
+  //goes in as a data: URI (see FileToDataUri)
+  if FileExistsUTF8(dir+'globe.gl.min.js') and FileExistsUTF8(dir+'earth-blue-marble.jpg') then
+  begin
+    tex := FileToDataUri(dir+'earth-blue-marble.jpg','image/jpeg');
+    if tex <> '' then
+    begin
+      jsRef  := 'globe.gl.min.js';
+      texRef := tex
+    end
+  end;
+
+  //country outlines and their name labels - without them the globe is a bare
+  //texture and you cannot tell where a border runs
+  world := '{"features":[],"labels":[]}';
+  if FileExistsUTF8(dir+'countries.json') then
+  begin
+    l := TStringList.Create;
+    try
+      try
+        l.LoadFromFile(dir+'countries.json');
+        if Trim(l.Text) <> '' then
+          world := l.Text
+      except
+        on e : Exception do
+          if dmData.DebugLevel >= 1 then
+            Writeln('Could not read ',dir,'countries.json: ',e.Message)
+      end
+    finally
+      l.Free
+    end
+  end;
+
+  html := cGlobeTemplate;
+  html := StringReplace(html,'@@COUNTRIES@@',world,            [rfReplaceAll]);
+  html := StringReplace(html,'@@GLOBEJS@@',  jsRef,            [rfReplaceAll]);
+  html := StringReplace(html,'@@TEXTURE@@',  texRef,           [rfReplaceAll]);
+  html := StringReplace(html,'@@MYLAT@@',    JsNumber(myLat),  [rfReplaceAll]);
+  html := StringReplace(html,'@@MYLON@@',    JsNumber(myLon),  [rfReplaceAll]);
+  html := StringReplace(html,'@@DXLAT@@',    JsNumber(dxLat),  [rfReplaceAll]);
+  html := StringReplace(html,'@@DXLON@@',    JsNumber(dxLon),  [rfReplaceAll]);
+  html := StringReplace(html,'@@MYCALL@@',   JsSafeText(myCall),[rfReplaceAll]);
+  html := StringReplace(html,'@@MYLOC@@',    JsSafeText(myLoc), [rfReplaceAll]);
+  if Trim(JsSafeText(dxCall)) = '' then
+    dxCall := 'DX station';
+  html := StringReplace(html,'@@DXCALL@@',   JsSafeText(dxCall),[rfReplaceAll]);
+  html := StringReplace(html,'@@DXLOC@@',    JsSafeText(dxLoc), [rfReplaceAll]);
+  html := StringReplace(html,'@@DXLATTXT@@', CoordText(dxLat,'N','S'),[rfReplaceAll]);
+  html := StringReplace(html,'@@DXLONTXT@@', CoordText(dxLon,'E','W'),[rfReplaceAll]);
+  html := StringReplace(html,'@@DIST@@',     JsSafeText(dist),  [rfReplaceAll]);
+  html := StringReplace(html,'@@AZIM@@',     JsSafeText(azim),  [rfReplaceAll]);
+  html := StringReplace(html,'@@AZIMLP@@',
+                        IntToStr((StrToIntDef(Trim(azim),0)+180) mod 360),[rfReplaceAll]);
+  html := StringReplace(html,'@@NOTE@@',     JsSafeText(note),  [rfReplaceAll]);
+
+  page := dir + 'globe.html';
+  l := TStringList.Create;
+  try
+    try
+      l.Text := html;
+      l.SaveToFile(page)
+    except
+      on e : Exception do
+      begin
+        if dmData.DebugLevel >= 1 then
+          Writeln('Could not write ',page,': ',e.Message);
+        exit
+      end
+    end
+  finally
+    l.Free
+  end;
+
+  AProcess := TProcess.Create(nil);
+  try
+    if dmUtils.IsFileThere(cqrini.ReadString('Program','WebBrowser',dmUtils.MyDefaultBrowser),ResultFile) then
+      AProcess.Executable := ResultFile
+    else
+      exit;
+    AProcess.Parameters.Add('file://' + page);
+    if dmData.DebugLevel>=1 then Writeln('AProcess.Executable: ',AProcess.Executable,' Parameters: ',AProcess.Parameters.Text);
+    AProcess.Execute
+  finally
+    AProcess.Free
+  end
+end;
+
 procedure TdmUtils.ShowLocatorMapInBrowser(locator: string);
 var
   AProcess: TProcess;
@@ -4613,8 +4943,8 @@ begin
       try
           cmd := StringReplace(cmd,'$CALL',frmNewQSO.edtCall.Text,[rfReplaceAll]);
           cmd := StringReplace(cmd,'$BAND',dmUtils.GetBandFromFreq(frmNewQSO.cmbFreq.Text),[rfReplaceAll]);
-          cmd := StringReplace(cmd,'$MODE',frmNewQSO.cmbFreq.Text,[rfReplaceAll]);
-          cmd := StringReplace(cmd,'$FREQ',frmNewQSO.cmbMode.Text,[rfReplaceAll]);
+          cmd := StringReplace(cmd,'$MODE',frmNewQSO.cmbMode.Text,[rfReplaceAll]);
+          cmd := StringReplace(cmd,'$FREQ',frmNewQSO.cmbFreq.Text,[rfReplaceAll]);
           cmd := StringReplace(cmd,'$LOC',frmNewQSO.edtGrid.Text,[rfReplaceAll]);
           if not(frmNewQSO.fEditQSO or frmNewQSO.fViewQSO) then
              cmd := StringReplace(cmd,'$MYLOC',frmNewQSO.CurrentMyLoc,[rfReplaceAll])

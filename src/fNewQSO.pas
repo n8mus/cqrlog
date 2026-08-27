@@ -360,10 +360,12 @@ type
     pnlSbtn5: TPanel;
     pnlSbtn6: TPanel;
     pnlSbtn7: TPanel;
+    pnlSbtn8: TPanel;
     popEditQSO: TPopupMenu;
     sbNewQSO: TStatusBar;
     sbtnAttach: TSpeedButton;
     sbtneQSL: TSpeedButton;
+    sbtnGlobe: TSpeedButton;
     sbtnHamQTH: TSpeedButton;
     sbtnLocatorMap: TSpeedButton;
     sbtnUsrbtn: TSpeedButton;
@@ -605,6 +607,7 @@ type
     procedure pgDetailsChange(Sender: TObject);
     procedure popEditQSOPopup(Sender: TObject);
     procedure sbtnAttachClick(Sender: TObject);
+    procedure sbtnGlobeClick(Sender: TObject);
     procedure sbtnLocatorMapClick(Sender: TObject);
     procedure sbtnQSLClick(Sender: TObject);
     procedure sbtnQRZClick(Sender: TObject);
@@ -6753,6 +6756,52 @@ procedure TfrmNewQSO.sbtnLocatorMapClick(Sender: TObject);
 begin
   if dmUtils.isLocOK(edtGrid.Text) then  //there may be case where Grid is empty and button is visible
     dmUtils.ShowLocatorMapInBrowser(dmUtils.CompleteLoc(edtGrid.Text))
+end;
+
+procedure TfrmNewQSO.sbtnGlobeClick(Sender: TObject);
+var
+  myLat,myLon,
+  dxLat,dxLon : Currency;
+  myLoc,dxLoc,
+  note        : String;
+begin
+  if (fEditQSO or fViewQSO) then
+    myLoc := dmUtils.CompleteLoc(EditViewMyLoc)
+  else
+    myLoc := dmUtils.CompleteLoc(CurrentMyLoc);
+
+  if not dmUtils.IsLocOK(myLoc) then
+  begin
+    dmUtils.ShowTheMessage('Globe','Your own locator is not set (Preferences - Station), '+
+                                   'so the path can not be drawn.',4000);
+    exit
+  end;
+  dmUtils.CoordinateFromLocator(myLoc,myLat,myLon);
+
+  note  := '';
+  dxLoc := '';
+  if dmUtils.IsLocOK(edtGrid.Text) then
+  begin
+    dxLoc := dmUtils.CompleteLoc(edtGrid.Text);
+    dmUtils.CoordinateFromLocator(dxLoc,dxLat,dxLon);
+    dxLoc := edtGrid.Text
+  end
+  else if (lblLat.Caption <> '') and (lblLong.Caption <> '') then
+  begin
+    //no locator known - fall back to the DXCC entity position the info panel shows
+    dmUtils.GetRealCoordinate(lblLat.Caption,lblLong.Caption,dxLat,dxLon);
+    dxLoc := '(no locator)';
+    note  := 'Approximate position - centre of the DXCC entity, no locator known for this station.'
+  end
+  else begin
+    dmUtils.ShowTheMessage('Globe','No locator and no DXCC position for this callsign yet, '+
+                                   'nothing to show on the globe.',4000);
+    exit
+  end;
+
+  dmUtils.ShowGlobeInBrowser(myLat,myLon,dxLat,dxLon,
+                             cqrini.ReadString('Station','Call','my station'),myLoc,
+                             edtCall.Text,dxLoc,lblQRA.Caption,lblAzi.Caption,note)
 end;
 
 procedure TfrmNewQSO.tmrESCTimer(Sender: TObject);

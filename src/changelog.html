@@ -11,6 +11,10 @@
     <strong>CQRLOG α (Alpha)</strong><br>
     What is new:
     <ul style="list-style: square;text-align:left; color: green;" >
+    <li>(14) 2026-08-27</li><ul>
+    <li>NewQSO:Add: a globe button in the button strip beside the comment field. It opens a real, draggable 3D globe in your web browser with your station and the station you are working both marked, and the great-circle path drawn between them - the same picture you get by chasing a QRZ page out to Google Maps, but one click from the log and already aimed at the path. The position comes from the locator when one is known, otherwise from the DXCC entity centre (and the page says so when it is the rough one). Buttons on the page re-aim at the whole path, at the DX, or at home, and toggle a slow spin</li>
+    <li>NewQSO:Fix: the user-defined URL button had $MODE and $FREQ wired to each other, so a template using either substituted the wrong value</li>
+    </ul>
     <li>(13) 2026-08-10</li><ul>
     <li>General:Fix: the version on the startup splash screen no longer loses letters. It was drawn centred inside a fixed 130-pixel box with clipping switched on, so every release that made the version string one character longer trimmed a letter off each end - by (12) the splash read "nhanced_(12)_Gtk". It now shows "Enhanced (13)" right-aligned in a larger bold font, with clipping off so it cannot be silently trimmed again</li>
     <li>TRXControl:Fix: losing the rig no longer freezes CQRLOG. If the rigctld you connect to went away - the SDR console shut down, or the daemon restarted - the radio timeout raised a modal "Radio did not respond" box that blocked the whole program, including the auto-reconnect that would have healed it. The timeout now drops quietly to a disconnected state and the reconnect timer rebuilds the link by itself once the port answers again</li>
