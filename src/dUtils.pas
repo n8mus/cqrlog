@@ -957,9 +957,19 @@ var
   NumRead : Word = 0;
   NumWritten: Word = 0;
   Buffer: array[1..2048] of byte;
+  OldMode : LongInt;
 begin
-  AssignFile(FromF, FileFrom);
-  Reset(FromF, 1);
+  //Reset on an untyped file honours the global FileMode, which defaults to
+  //read/write - so copying a file we may only read (anything root owns under
+  ///usr/share) died with "Access denied" before a byte was moved
+  OldMode  := FileMode;
+  FileMode := 0;
+  try
+    AssignFile(FromF, FileFrom);
+    Reset(FromF, 1)
+  finally
+    FileMode := OldMode
+  end;
   AssignFile(ToF, FileTo);
   Rewrite(ToF, 1);
   repeat
@@ -4214,7 +4224,15 @@ procedure TdmUtils.ShowGlobeInBrowser(myLat, myLon, dxLat, dxLon: Currency;
   procedure SyncAsset(const src, dst, name : String);
   begin
     if (not FileExistsUTF8(dst+name)) or (FileAgeUTF8(dst+name) < FileAgeUTF8(src+name)) then
+    try
       FileCopy(src+name, dst+name)
+    except
+      //a copy we cannot make is not fatal - an older copy already beside the
+      //page still works, and with none at all we fall back to the net
+      on e : Exception do
+        if dmData.DebugLevel >= 1 then
+          Writeln('Could not refresh ',dst,name,': ',e.Message)
+    end
   end;
 
   function CoordText(value : Currency; const pos, neg : String) : String;
