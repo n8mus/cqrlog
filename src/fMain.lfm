@@ -2488,6 +2488,13 @@ object frmMain: TfrmMain
       Visible = False
       OnClick = mnueQSLViewClick
     end
+    object mnuGlobeSep: TMenuItem
+      Caption = '-'
+    end
+    object mnuGlobe: TMenuItem
+      Caption = 'Show station on globe'
+      OnClick = mnuGlobeClick
+    end
   end
   object imgMain1: TImageList
     Left = 680

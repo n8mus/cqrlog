@@ -163,6 +163,8 @@ type
     mnuLoadFilter: TMenuItem;
     MenuItem89: TMenuItem;
     mnueQSLView: TMenuItem;
+    mnuGlobe: TMenuItem;
+    mnuGlobeSep: TMenuItem;
     MenuItem11: TMenuItem;
     MenuItem12: TMenuItem;
     MenuItem13: TMenuItem;
@@ -421,6 +423,7 @@ type
     procedure MenuItem10Click(Sender: TObject);
     procedure MenuItem15Click(Sender: TObject);
     procedure mnueQSLViewClick(Sender: TObject);
+    procedure mnuGlobeClick(Sender: TObject);
     procedure mnuIK3AQRClick(Sender: TObject);
     procedure mnuHelpIndexClick(Sender: TObject);
     procedure mnuIOTAStatClick(Sender: TObject);
@@ -1420,6 +1423,66 @@ if dmData.DebugLevel>=1 then
            writeln(idlist);
   acExADIFExecute(nil);
   idlist:='';
+end;
+
+procedure TfrmMain.mnuGlobeClick(Sender: TObject);
+var
+  myLat,myLon,
+  dxLat,dxLon : Currency;
+  myLoc,dxLoc,
+  qra,azim,
+  dist,note   : String;
+begin
+  //the QSO carries the locator it was worked from, fall back on the station one
+  myLoc := dmUtils.CompleteLoc(dmData.qCQRLOG.FieldByName('my_loc').AsString);
+  if not dmUtils.IsLocOK(myLoc) then
+    myLoc := dmUtils.CompleteLoc(cqrini.ReadString('Station','LOC',''));
+  if not dmUtils.IsLocOK(myLoc) then
+  begin
+    dmUtils.ShowTheMessage('Globe','Your own locator is not set (Preferences - Station), '+
+                                   'so the path can not be drawn.',4000);
+    exit
+  end;
+  dmUtils.CoordinateFromLocator(myLoc,myLat,myLon);
+
+  qra   := '';
+  azim  := '';
+  note  := '';
+  dxLoc := dmData.qCQRLOG.FieldByName('loc').AsString;
+  if dmUtils.IsLocOK(dxLoc) then
+  begin
+    dmUtils.CoordinateFromLocator(dmUtils.CompleteLoc(dxLoc),dxLat,dxLon);
+    dmUtils.DistanceFromLocator(myLoc,dmUtils.CompleteLoc(dxLoc),qra,azim)
+  end
+  else begin
+    //no locator logged - fall back to the centre of the DXCC entity
+    dxLat := 0;
+    dxLon := 0;
+    dmUtils.GetCoordinate(dmData.qCQRLOG.FieldByName('dxcc_ref').AsString,dxLat,dxLon);
+    if (dxLat = 0) and (dxLon = 0) then
+    begin
+      dmUtils.ShowTheMessage('Globe','No locator and no DXCC position for this QSO, '+
+                                     'nothing to show on the globe.',4000);
+      exit
+    end;
+    dxLoc := '(no locator)';
+    note  := 'Approximate position - centre of the DXCC entity, no locator logged for this QSO.';
+    dmUtils.DistanceFromCoordinate(myLoc,dxLat,dxLon,qra,azim)
+  end;
+
+  dist := '';
+  if (qra <> '') then
+  begin
+    if cqrini.ReadBool('Program','ShowMiles',False) then
+      dist := FloatToStr(dmUtils.KmToMiles(StrToFloat(qra))) + 'mi'
+    else
+      dist := qra + 'km'
+  end;
+
+  dmUtils.ShowGlobeInBrowser(myLat,myLon,dxLat,dxLon,
+                             cqrini.ReadString('Station','Call','my station'),myLoc,
+                             dmData.qCQRLOG.FieldByName('callsign').AsString,
+                             dxLoc,dist,azim,note)
 end;
 
 procedure TfrmMain.mnueQSLViewClick(Sender: TObject);
