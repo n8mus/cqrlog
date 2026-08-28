@@ -19,8 +19,31 @@ try it, especially your database.
 
 ## Install
 
-There is no prebuilt download — you compile it, which takes about five
-minutes and one copy-paste per step. Do all six steps, in order.
+Open a terminal, paste this one line, press Enter:
+
+```
+bash <(curl -fsSL https://raw.githubusercontent.com/n8mus/cqrlog/master/install-cqrlog.sh)
+```
+
+That's the whole install. It installs the build tools, downloads the
+source, compiles it, installs the program with all its data files, and
+sets up the database — asking for your password when it needs it. Takes
+about five minutes, mostly compiling. Works on Debian, Ubuntu, Linux
+Mint, Arch and Fedora.
+
+When it finishes, start CQRLOG from your applications menu and answer
+**YES** to "save data to a local machine."
+
+Re-run the same line any time to upgrade to the latest version. Your log
+in `~/.config/cqrlog` is never touched.
+
+There is no prebuilt binary to download — CQRLog Enhanced is compiled on
+your own machine, which is why one Linux program works across all those
+distributions. See [`install-cqrlog.sh`](install-cqrlog.sh) for exactly
+what the installer does.
+
+<details>
+<summary><b>Prefer to do it by hand? Six steps, click here.</b></summary>
 
 ### 1. Install the build tools
 
@@ -106,6 +129,8 @@ make cqrlog && sudo make install
 
 Your log lives in `~/.config/cqrlog`, untouched by an upgrade — but back
 it up anyway before you do this.
+
+</details>
 
 ## Optional extras
 
