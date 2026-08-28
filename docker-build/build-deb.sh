@@ -61,7 +61,17 @@ echo "    library deps: $SHLIBDEPS"
 
 # Runtime programs CQRLOG actually needs beyond libraries. The database
 # packages matter most: without them the logger has nothing to store QSOs in.
-RUNDEPS="mariadb-server, mariadb-client"
+#
+# libssl-dev looks wrong in a runtime dependency list and is not. Synapse
+# opens OpenSSL at runtime by the BARE soname -- LoadLib('libssl.so'), see
+# src/synapse/ssl_openssl_lib.pas -- and on Debian/Ubuntu that unversioned
+# symlink ships only in libssl-dev; the runtime libssl3 package provides
+# libssl.so.3 alone. Because the load is a dlopen, dpkg-shlibdeps cannot see
+# it either. Omit this and every HTTPS feature fails silently on a user's
+# machine: the update check, LoTW, eQSL, QRZ.com upload, callbook lookups and
+# the POTA spot feed. Upstream's debian/control listed it for this reason.
+# (Arch is not affected -- its openssl package ships the bare symlink.)
+RUNDEPS="mariadb-server, mariadb-client, libssl-dev"
 
 cat > "$PKGROOT/DEBIAN/control" <<CONTROL
 Package: cqrlog-enhanced

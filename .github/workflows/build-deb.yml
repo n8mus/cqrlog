@@ -123,6 +123,28 @@ jobs:
           fi
           echo "All libraries resolve on ${{ matrix.image }}."
 
+      - name: Check OpenSSL loads the way Synapse loads it
+        run: |
+          # Synapse dlopens the BARE soname (LoadLib('libssl.so') in
+          # src/synapse/ssl_openssl_lib.pas), and on Debian/Ubuntu that
+          # unversioned symlink lives in libssl-dev, not libssl3. If it is
+          # missing, TLS silently never initialises and every HTTPS feature --
+          # update check, LoTW, eQSL, QRZ.com upload, callbook lookups, POTA
+          # spots -- fails with no error at all. ctypes.CDLL is the same
+          # dlopen call, so this reproduces it exactly.
+          apt-get install -y --no-install-recommends python3-minimal
+          python3 -c "
+          import ctypes, sys
+          for lib in ('libssl.so', 'libcrypto.so'):
+              try:
+                  ctypes.CDLL(lib)
+                  print('loaded', lib)
+              except OSError as e:
+                  print('::error::cannot dlopen', lib, '->', e)
+                  sys.exit(1)
+          print('TLS will initialise on ${{ matrix.image }}.')
+          "
+
       - name: Check it actually starts
         run: |
           # Installing proves the dependencies are named right; launching proves
