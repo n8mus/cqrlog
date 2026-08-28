@@ -136,7 +136,11 @@ dpkg-deb --build --root-owner-group "$PKGROOT" "$DEB"
 
 say "Verifying"
 dpkg-deb --info "$DEB"
-dpkg-deb --contents "$DEB" | head -15
-echo "    ..."
+# Write the listing out in full before trimming it: piping straight into head
+# makes dpkg-deb's tar die on SIGPIPE, which under 'set -o pipefail' fails the
+# whole build after the package has already been built successfully.
+dpkg-deb --contents "$DEB" > /tmp/deb-contents.txt
+head -15 /tmp/deb-contents.txt
+echo "    ... $(wc -l < /tmp/deb-contents.txt) entries in total"
 echo
 echo "Built: $DEB"
