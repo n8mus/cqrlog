@@ -41,7 +41,7 @@ say "Compiling and packaging inside the container"
   -v "$REPO_ROOT":/build:ro,z \
   -v "$OUT":/out:z \
   "$IMAGE" \
-  -c 'cp -a /build /src-rw && cd /src-rw && exec bash docker-build/build-deb.sh' \
+  -c 'cp -a /build /src-rw && cd /src-rw && CQRLOG_OUT_DIR=/out exec bash docker-build/build-deb.sh' \
   || die "The container build failed — see the output above."
 
 say "Done"

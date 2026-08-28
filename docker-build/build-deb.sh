@@ -12,9 +12,11 @@
 # dpkg-shlibdeps compute the library ones.
 set -euo pipefail
 
-SRC=/build
-OUT=/out
-PKGROOT=/tmp/pkgroot
+# Defaults suit the container in make-release.sh; GitHub Actions overrides
+# them to build straight from the checked-out workspace.
+SRC="${CQRLOG_SRC_DIR:-$PWD}"
+OUT="${CQRLOG_OUT_DIR:-$PWD/dist}"
+PKGROOT="${CQRLOG_PKGROOT:-/tmp/pkgroot}"
 
 say() { printf '\n\033[1;36m==>\033[0m \033[1m%s\033[0m\n' "$1"; }
 
