@@ -1,22 +1,22 @@
+# Build environment for CQRLog Enhanced release packages.
+#
+# Ubuntu 22.04 on purpose: a compiled binary is tied to the C library it was
+# built against, so it runs on that release and newer ones but not older. 22.04
+# covers Ubuntu 22.04+, Linux Mint 21+ and Debian 12+ from a single build.
+#
+# Driven by docker-build/make-release.sh — deliberately no ENTRYPOINT, so the
+# caller decides what to run.
 FROM ubuntu:jammy
 
-RUN apt-get update && apt-get -y upgrade
+ENV DEBIAN_FRONTEND=noninteractive TZ=UTC
 
-ENV DEBIAN_FRONTEND="noninteractive" TZ="Europe/London"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git make ca-certificates \
+      lazarus lcl lcl-gtk2 lcl-units lcl-utils \
+      fpc fpc-source fp-units-rtl fp-units-misc fp-units-gfx fp-units-gtk2 \
+      fp-units-db fp-units-math fp-units-net \
+      libssl-dev libgtk2.0-dev \
+      dpkg-dev fakeroot \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get install -y git lazarus-ide lcl lcl-gtk2 lcl-nogui lcl-units lcl-utils lazarus lazarus-doc lazarus-src fp-units-misc fp-units-rtl fp-utils fpc fpc-source libssl-dev
-
-RUN mkdir -p /usr/local/cqrlog-alpha /home/cqrlog/build
-
-# Mount point for the git repository:
-# -v $(pwd):/home/cqrlog/build
-VOLUME ["/home/cqrlog/build"]
-
-# Mount point for the result of the build:
-# -v /usr/local/cqrlog-alpha:/usr/local/cqrlog-alpha
-VOLUME ["/usr/local/cqrlog-alpha"]
-
-WORKDIR /home/cqrlog/build
-
-ENTRYPOINT make clean && make DESTDIR=/usr/local/cqrlog-alpha && make DESTDIR=/usr/local/cqrlog-alpha install
-
+WORKDIR /src-rw

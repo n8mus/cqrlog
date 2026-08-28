@@ -36,3 +36,6 @@ tools/cqrlog.?.gz
 
 
 .claude/
+
+# Release artifacts built by docker-build/make-release.sh
+dist/
