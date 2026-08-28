@@ -60,6 +60,7 @@ jobs:
           path: dist/*.deb
 
       - name: Attach to the release
+        id: attach
         if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -73,3 +74,73 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           [ "$GITHUB_EVENT_NAME" != "release" ] || TAG="${{ github.event.release.tag_name }}"
           gh release upload "$TAG" dist/*.deb --clobber --repo "$GITHUB_REPOSITORY"
+
+  # Install the package the way a real user would, on the actual
+  # distributions we claim to support -- including genuine Linux Mint images,
+  # not just the Ubuntu they are built on.
+  test-install:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - linuxmintd/mint21-amd64     # Mint 21 (Ubuntu 22.04 base)
+          - linuxmintd/mint22-amd64     # Mint 22 (Ubuntu 24.04 base)
+          - ubuntu:22.04
+          - ubuntu:24.04
+          - debian:12
+    container: ${{ matrix.image }}
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: cqrlog-enhanced-deb
+
+      - name: Install the package
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y ./cqrlog-enhanced_*.deb
+
+      - name: Check the files landed
+        run: |
+          test -x /usr/bin/cqrlog
+          test -d /usr/share/cqrlog/ctyfiles
+          test -f /usr/share/cqrlog/changelog.html
+          test -f /usr/share/applications/cqrlog.desktop
+
+      - name: Check every shared library resolves
+        run: |
+          # The failure mode this whole container-build exists to prevent is a
+          # binary that cannot find its libraries on the user's distribution.
+          # ldd -r reports unresolved libraries and symbols; either is fatal.
+          apt-get install -y --no-install-recommends binutils
+          ldd -r /usr/bin/cqrlog > /tmp/ldd.txt 2>&1 || true
+          cat /tmp/ldd.txt
+          if grep -qE 'not found|undefined symbol' /tmp/ldd.txt; then
+            echo "::error::Unresolved libraries or symbols on ${{ matrix.image }}"
+            exit 1
+          fi
+          echo "All libraries resolve on ${{ matrix.image }}."
+
+      - name: Check it actually starts
+        run: |
+          # Installing proves the dependencies are named right; launching proves
+          # the binary really runs on this distribution. A missing library kills
+          # it immediately, so surviving a few seconds under a virtual display
+          # is the signal we want.
+          apt-get install -y --no-install-recommends xvfb
+          Xvfb :99 -screen 0 1024x768x24 >/dev/null 2>&1 &
+          sleep 3
+          DISPLAY=:99 /usr/bin/cqrlog > /tmp/cqrlog.log 2>&1 &
+          APP=$!
+          sleep 20
+          if kill -0 "$APP" 2>/dev/null; then
+            echo "cqrlog started and stayed running on ${{ matrix.image }}."
+            kill "$APP" 2>/dev/null || true
+          else
+            wait "$APP" 2>/dev/null; RC=$?
+            echo "::error::cqrlog exited early (code $RC) on ${{ matrix.image }}"
+            cat /tmp/cqrlog.log
+            exit 1
+          fi
