@@ -57,7 +57,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: cqrlog-enhanced-deb
-          path: dist/*.deb
+          path: |
+            dist/*.deb
+            dist/ssltest
 
       - name: Attach to the release
         id: attach
@@ -123,29 +125,18 @@ jobs:
           fi
           echo "All libraries resolve on ${{ matrix.image }}."
 
-      - name: Check OpenSSL loads the way Synapse loads it
+      - name: Check HTTPS really works, not just that the library loads
         run: |
-          # Synapse dlopens the BARE soname (LoadLib('libssl.so') in
-          # src/synapse/ssl_openssl_lib.pas), and on Debian/Ubuntu that
-          # unversioned symlink lives in libssl-dev, not libssl3. If it is
-          # missing, TLS silently never initialises and every HTTPS feature --
-          # update check, LoTW, eQSL, QRZ.com upload, callbook lookups, POTA
-          # spots -- fails with no error at all. ctypes.CDLL is the same
-          # dlopen call, so this reproduces it exactly.
-          # python3, not python3-minimal: Debian's minimal build ships without
-          # the ctypes module, which is the whole mechanism under test.
-          apt-get install -y --no-install-recommends python3
-          python3 -c "
-          import ctypes, sys
-          for lib in ('libssl.so', 'libcrypto.so'):
-              try:
-                  ctypes.CDLL(lib)
-                  print('loaded', lib)
-              except OSError as e:
-                  print('::error::cannot dlopen', lib, '->', e)
-                  sys.exit(1)
-          print('TLS will initialise on ${{ matrix.image }}.')
-          "
+          # Built from cqrlog's own Synapse units in the build job, so this is
+          # the exact code path GetDataFromHttp uses -- same dlopen of the bare
+          # "libssl.so", same THTTPSend. Installing proves dependency names
+          # resolve; this proves a TLS handshake completes against the real
+          # services. When this breaks, nothing in the app reports an error:
+          # the update check, LoTW, eQSL, QRZ.com upload, callbook lookups and
+          # POTA spots just silently stop working.
+          apt-get install -y --no-install-recommends ca-certificates
+          chmod +x ./ssltest
+          ./ssltest
 
       - name: Check it actually starts
         run: |

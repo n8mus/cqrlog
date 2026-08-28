@@ -144,6 +144,15 @@ mkdir -p "$OUT"
 DEB="$OUT/cqrlog-enhanced_${DEBVER}_${ARCH}.deb"
 dpkg-deb --build --root-owner-group "$PKGROOT" "$DEB"
 
+# ---- HTTPS self-test binary ------------------------------------------------
+# Built here, beside the package and against the same glibc, so it can be run
+# on the target distributions to prove a TLS handshake really completes. Not
+# part of the package -- it goes in the output directory only.
+say "Building the HTTPS self-test"
+fpc -Fusrc/synapse -FE/tmp -o"$OUT/ssltest" tools/ssltest.pas > /tmp/ssltest-build.log 2>&1 \
+  || { echo "ERROR: ssltest failed to build" >&2; tail -20 /tmp/ssltest-build.log >&2; exit 1; }
+echo "    built $OUT/ssltest"
+
 say "Verifying"
 dpkg-deb --info "$DEB"
 # Write the listing out in full before trimming it: piping straight into head
