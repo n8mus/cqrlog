@@ -19,28 +19,39 @@ try it, especially your database.
 
 ## Install
 
-Open a terminal, paste this one line, press Enter:
+### Ubuntu, Linux Mint or Debian — download and install
+
+Grab the `.deb` from the
+[latest release](https://github.com/n8mus/cqrlog/releases/latest), then
+double-click it, or run:
+
+```
+sudo apt install ./cqrlog-enhanced_*.deb
+```
+
+That's it — start CQRLOG from your applications menu and answer **YES**
+to "save data to a local machine." The package pulls in MariaDB and
+fixes the `mysqld`/`mariadbd` name and the AppArmor rule for you, so the
+"can't connect to local MySQL server" wall never appears.
+
+Works on Ubuntu 22.04 and newer, Linux Mint 21 and newer, and Debian 12
+and newer, on 64-bit PCs.
+
+### Any other Linux — one line
+
+Arch, Fedora, or an older/newer Ubuntu than the package covers. Open a
+terminal, paste this, press Enter:
 
 ```
 bash <(curl -fsSL https://raw.githubusercontent.com/n8mus/cqrlog/master/install-cqrlog.sh)
 ```
 
-That's the whole install. It installs the build tools, downloads the
-source, compiles it, installs the program with all its data files, and
-sets up the database — asking for your password when it needs it. Takes
-about five minutes, mostly compiling. Works on Debian, Ubuntu, Linux
-Mint, Arch and Fedora.
-
-When it finishes, start CQRLOG from your applications menu and answer
-**YES** to "save data to a local machine."
-
-Re-run the same line any time to upgrade to the latest version. Your log
-in `~/.config/cqrlog` is never touched.
-
-There is no prebuilt binary to download — CQRLog Enhanced is compiled on
-your own machine, which is why one Linux program works across all those
-distributions. See [`install-cqrlog.sh`](install-cqrlog.sh) for exactly
-what the installer does.
+It installs the build tools, downloads the source, compiles it, installs
+the program with all its data files, and sets up the database — asking
+for your password when it needs it. About five minutes, mostly
+compiling. Re-run the same line any time to upgrade. Your log in
+`~/.config/cqrlog` is never touched. See
+[`install-cqrlog.sh`](install-cqrlog.sh) for exactly what it does.
 
 <details>
 <summary><b>Prefer to do it by hand? Six steps, click here.</b></summary>
