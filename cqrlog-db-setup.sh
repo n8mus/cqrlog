@@ -3,7 +3,8 @@
 # local MySQL server through socket" wall that stops so many installs.
 #
 # It does the four things the forum threads are full of:
-#   1. installs MariaDB server + client (and cqrlog if you want)
+#   1. installs MariaDB server + client
+#      (this script sets up the DATABASE only — it does not install cqrlog)
 #   2. makes the modern 'mariadbd' binary findable under the old 'mysqld'
 #      name that cqrlog looks for (distros dropped that symlink)
 #   3. adds the AppArmor exception so the DB can use ~/.config/cqrlog

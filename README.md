@@ -17,7 +17,60 @@ help of Anthropic's Claude. It's daily-driven here and working well,
 but this is alpha-based software: **back up everything** before you
 try it, especially your database.
 
-## Easy database setup (fixes the "can't connect to MySQL" wall)
+## Install
+
+There is no prebuilt download — you compile it, which takes about five
+minutes and one copy-paste per step. Do all six steps, in order.
+
+### 1. Install the build tools
+
+**Debian / Ubuntu / Linux Mint:**
+
+```
+sudo apt update
+sudo apt install -y git make lazarus lcl lcl-gtk2 lcl-units lcl-utils \
+                    fpc fpc-source fp-units-rtl fp-units-misc libssl-dev
+```
+
+**Arch:**
+
+```
+sudo pacman -S --needed git make lazarus fpc openssl
+```
+
+Fedora is the same idea with `dnf install git make lazarus fpc
+openssl-devel`.
+
+### 2. Get the source
+
+```
+git clone https://github.com/n8mus/cqrlog.git
+cd cqrlog
+```
+
+### 3. Build it
+
+```
+make cqrlog
+```
+
+If that fails with `Invalid Lazarus directory ""`, your Lazarus config
+has never been initialised — open the Lazarus IDE once, let it set
+itself up, close it, and run `make cqrlog` again.
+
+### 4. Install it
+
+```
+sudo make install
+```
+
+**Use `make install`, not just a copy of the binary.** CQRLOG needs its
+data directory (`/usr/share/cqrlog`) for country files, help pages,
+icons, the grey-line globe and the changelog. Copying only the
+executable gives you a program with no DXCC country data and no
+application-menu entry.
+
+### 5. Set up the database
 
 The #1 reason CQRLOG won't start on a fresh Linux install is the local
 database: modern **MariaDB** renamed its server from `mysqld` to `mariadbd`
@@ -25,18 +78,41 @@ and most distros dropped the old name, so CQRLOG can't find the daemon and
 throws *"Can't connect to local MySQL server through socket."* On
 Debian/Ubuntu, AppArmor also blocks the database folder.
 
-This fork already searches for `mariadbd` directly, and there's a one-line
-setup script that fixes the rest for you — installs MariaDB, makes the
-server findable, adds the AppArmor exception, and repairs a corrupted
-database folder:
+This fork already searches for `mariadbd` directly, and this one-liner
+fixes the rest for you — installs MariaDB, makes the server findable,
+adds the AppArmor exception, and repairs a corrupted database folder:
 
 ```
 bash <(curl -fsSL https://raw.githubusercontent.com/n8mus/cqrlog/master/cqrlog-db-setup.sh)
 ```
 
-Run it once (with CQRLOG closed), then start CQRLOG and answer **YES** to
-"save data to a local machine." Safe to re-run; it won't touch a healthy
-database. See [`cqrlog-db-setup.sh`](cqrlog-db-setup.sh) for exactly what it does.
+Run it with CQRLOG closed. It sets up the *database only* — it does not
+install CQRLOG, so don't skip steps 1–4. Safe to re-run; it won't touch a
+healthy database. See [`cqrlog-db-setup.sh`](cqrlog-db-setup.sh) for
+exactly what it does.
+
+### 6. Start it
+
+Launch CQRLOG from your application menu and answer **YES** to "save data
+to a local machine."
+
+### Upgrading later
+
+```
+cd cqrlog
+git pull
+make cqrlog && sudo make install
+```
+
+Your log lives in `~/.config/cqrlog`, untouched by an upgrade — but back
+it up anyway before you do this.
+
+## Optional extras
+
+- **Rig control**: `hamlib` / `libhamlib-utils` (provides `rigctld`).
+- **LoTW**: TrustedQSL (`trustedqsl` on Debian/Ubuntu, AUR on Arch) —
+  required for the automatic LoTW signing and upload.
+- **Grey-line map**: `xplanet`.
 
 ## What "Enhanced" adds over stock CQRLOG
 
@@ -113,24 +189,17 @@ Your QRZ API key is found at qrz.com -> Logbook -> Settings -> API Key.
 LoTW and eQSL use the standard CQRLOG preferences; the automatic
 upload and daily confirmation download switch on with them.
 
-## Building from source
-
-    git clone https://github.com/n8mus/cqrlog.git
-    cd cqrlog/src
-    lazbuild cqrlog.lpi
-    sudo cp cqrlog /usr/bin/cqrlog
-
-The lnet TCP/UDP library is bundled in-tree, so the build works out of
-the box (no extra Lazarus packages to hunt down).
-
 ## Requirements
 
 - Linux (developed and daily-driven on Arch; earlier versions also
   installed clean on Linux Mint 22.1)
 - Free Pascal Compiler 3.2.2+ and Lazarus with `lazbuild`
-- MariaDB/MySQL (standard CQRLOG requirement)
+- MariaDB/MySQL — handled for you by step 5 of the install
 - A QRZ.com account with logbook enabled — only for the QRZ upload
   feature
+
+The lnet TCP/UDP library is bundled in-tree, so the build works out of
+the box (no extra Lazarus packages to hunt down).
 
 ## Base project
 
