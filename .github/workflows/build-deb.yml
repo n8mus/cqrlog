@@ -132,7 +132,9 @@ jobs:
           # update check, LoTW, eQSL, QRZ.com upload, callbook lookups, POTA
           # spots -- fails with no error at all. ctypes.CDLL is the same
           # dlopen call, so this reproduces it exactly.
-          apt-get install -y --no-install-recommends python3-minimal
+          # python3, not python3-minimal: Debian's minimal build ships without
+          # the ctypes module, which is the whole mechanism under test.
+          apt-get install -y --no-install-recommends python3
           python3 -c "
           import ctypes, sys
           for lib in ('libssl.so', 'libcrypto.so'):
