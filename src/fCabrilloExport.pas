@@ -39,6 +39,8 @@ type
     chkCabInfoRrst: TCheckBox;
     cmbCabInfoREx1: TComboBox;
     cmbCabInfoREx2: TComboBox;
+    cmbCabAssisted: TComboBox;
+    cmbCabTransmitter: TComboBox;
     cmbCabPower: TComboBox;
     cmbCabContestName: TComboBox;
     cmbCabInfoSEx1: TComboBox;
@@ -50,6 +52,7 @@ type
     edtCabInfoREx1Wdt: TEdit;
     edtCabInfoRrstWdt: TEdit;
     edtCabInfoSrstWdt: TEdit;
+    edtCabClaimedScore: TEdit;
     edtCabLocation: TEdit;
     edtCabInfoREx2Wdt: TEdit;
     edtCabInfoSEx1Wdt: TEdit;
@@ -74,6 +77,9 @@ type
     lblCabfileName: TLabel;
     lblCabStats: TLabel;
     lblCabLocation: TLabel;
+    lblCabAssisted: TLabel;
+    lblCabTransmitter: TLabel;
+    lblCabClaimedScore: TLabel;
     lblCabPower: TLabel;
     lblCabError: TLabel;
     lblCabContestName: TLabel;
@@ -124,7 +130,7 @@ var
 implementation
 {$R *.lfm}
 
-uses dData,dUtils,dDXCC,fWorkedGrids, uMyIni;
+uses dData,dUtils,dDXCC,fWorkedGrids, uMyIni, fContest;
 
 { TfrmCabrilloExport }
 
@@ -140,6 +146,9 @@ begin
   cmbCabContestName.Text := cqrini.ReadString('CabrilloExport','ContestName','');
 
   cmbCabPower.ItemIndex:= cqrini.ReadInteger('CabrilloExport','Power',0);
+  cmbCabAssisted.ItemIndex:= cqrini.ReadInteger('CabrilloExport','Assisted',0);
+  cmbCabTransmitter.ItemIndex:= cqrini.ReadInteger('CabrilloExport','Transmitter',0);
+  edtCabClaimedScore.Text:= cqrini.ReadString('CabrilloExport','ClaimedScore','');
   edtCabLocation.Text:= cqrini.ReadString('CabrilloExport','Location','');
   edtCabSoapBox.Text:= cqrini.ReadString('CabrilloExport','SoapBox','');
   edtCabCallWdt.Text:= cqrini.ReadString('CabrilloExport','CallsWidth', '13');
@@ -180,6 +189,9 @@ begin
   cqrini.WriteString('CabrilloExport','FileName',edtCabFileName.Text);
   cqrini.WriteString('CabrilloExport','ContestName',cmbCabContestName.Text);
   cqrini.WriteInteger('CabrilloExport','Power',cmbCabPower.ItemIndex);
+  cqrini.WriteInteger('CabrilloExport','Assisted',cmbCabAssisted.ItemIndex);
+  cqrini.WriteInteger('CabrilloExport','Transmitter',cmbCabTransmitter.ItemIndex);
+  cqrini.WriteString('CabrilloExport','ClaimedScore',edtCabClaimedScore.Text);
   cqrini.WriteString('CabrilloExport','Location',edtCabLocation.Text);
   cqrini.WriteString('CabrilloExport','SoapBox',edtCabSoapBox.Text);
   cqrini.WriteString('CabrilloExport','CallsWidth', edtCabCallWdt.Text);
@@ -378,9 +390,26 @@ begin
 end;
 
 procedure TfrmCabrilloExport.cmbCabContestNameExit(Sender: TObject);
+var
+  qsos,dupes,pts,m1,m2,m3,score : Integer;
 begin
   if pos('|', cmbCabContestName.Text)>1 then   //list selected item
      cmbCabContestName.Text := ExtractWord(1,cmbCabContestName.Text,['|']);
+
+  //If this contest has a rule definition, offer the computed score rather
+  //than making the operator work it out by hand. Never overwrite something
+  //already typed - a hand-entered score is a deliberate act.
+  if Trim(edtCabClaimedScore.Text) <> '' then exit;
+  score := frmContest.ScoreContest(cmbCabContestName.Text,False,-1,
+                                   qsos,dupes,pts,m1,m2,m3);
+  if score >= 0 then
+  begin
+    edtCabClaimedScore.Text := IntToStr(score);
+    lblCabClaimedScore.Hint := IntToStr(qsos)+' QSOs, '+IntToStr(pts)+
+                               ' points, mults '+IntToStr(m1)+'/'+
+                               IntToStr(m2)+'/'+IntToStr(m3);
+    lblCabClaimedScore.ShowHint := True
+  end
 end;
 
 procedure TfrmCabrilloExport.edtCabCallWdtExit(Sender: TObject);
@@ -758,11 +787,15 @@ begin
     Writeln(f,'CATEGORY-BAND: '+category_band);
     Writeln(f,'CATEGORY-MODE: '+category_mode);
     Writeln(f,'CATEGORY-POWER: '+CabrilloPower(cmbCabPower.ItemIndex));
-    Writeln(f,'CATEGORY-ASSISTED: NON-ASSISTED'); //  Only non-assisted currently
-    Writeln(f,'CATEGORY-TRANSMITTER: ONE');  // Only one transmitter for now
+    //These used to be hardcoded NON-ASSISTED/ONE, which misdeclares the entry
+    //category of anyone running cluster, skimmer or RBN spots
+    Writeln(f,'CATEGORY-ASSISTED: '+cmbCabAssisted.Text);
+    Writeln(f,'CATEGORY-TRANSMITTER: '+cmbCabTransmitter.Text);
     Writeln(f,'GRID-LOCATOR: '+UPcase(myloc)); //non standard upcase required
     Writeln(f,'LOCATION: '+edtCabLocation.Text);
-    Writeln(f,'CLAIMED-SCORE: ');
+    //A hand-typed score always wins - the operator may be submitting a score
+    //the rule engine cannot express. Otherwise fall back to the computed one.
+    Writeln(f,'CLAIMED-SCORE: '+Trim(edtCabClaimedScore.Text));
     // Writeln(f,'SPECIFIC: ');   // Unknown Cabrillo Tag (DF2ET 26.10.2020)
     Writeln(f,'CLUB: '+club);
     if (Operators.Count > 0) then
@@ -851,6 +884,9 @@ begin
       filini.WriteString('CabrilloExport','FileName',edtCabFileName.Text);
       filini.WriteString('CabrilloExport','ContestName',cmbCabContestName.Text);
       filini.WriteInteger('CabrilloExport','Power',cmbCabPower.ItemIndex);
+      filini.WriteInteger('CabrilloExport','Assisted',cmbCabAssisted.ItemIndex);
+      filini.WriteInteger('CabrilloExport','Transmitter',cmbCabTransmitter.ItemIndex);
+      filini.WriteString('CabrilloExport','ClaimedScore',edtCabClaimedScore.Text);
       filini.WriteString('CabrilloExport','Location',edtCabLocation.Text);
       filini.WriteString('CabrilloExport','SoapBox',edtCabSoapBox.Text);
       filini.WriteString('CabrilloExport','CallsWidth', edtCabCallWdt.Text);
@@ -891,6 +927,9 @@ var
         cmbCabContestName.Text := filini.ReadString('CabrilloExport','ContestName','');
 
         cmbCabPower.ItemIndex:= filini.ReadInteger('CabrilloExport','Power',0);
+        cmbCabAssisted.ItemIndex:= filini.ReadInteger('CabrilloExport','Assisted',0);
+        cmbCabTransmitter.ItemIndex:= filini.ReadInteger('CabrilloExport','Transmitter',0);
+        edtCabClaimedScore.Text:= filini.ReadString('CabrilloExport','ClaimedScore','');
         edtCabLocation.Text:= filini.ReadString('CabrilloExport','Location','');
         edtCabSoapBox.Text:= filini.ReadString('CabrilloExport','SoapBox','');
         edtCabCallWdt.Text:= filini.ReadString('CabrilloExport','CallsWidth', '13');

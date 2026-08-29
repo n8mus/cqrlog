@@ -1,0 +1,24 @@
+; ICWC Medium Speed Test. Exchange is name + serial, no RST.
+; Score is QSOs x distinct callsigns.
+[Contest]
+Name=ICWC-MST
+DisplayName=ICWC Medium Speed Test
+CabrilloName=ICWC-MST
+Mode=CW
+DupeType=2
+PointsPerContact=1
+Multiplier1Name=CallSign
+IsMult1Per=4
+; Exchange is name + serial; only the name is knowable in advance,
+; the serial changes every QSO so it must never be prefilled.
+CallHistoryExchange=%NAME%
+
+; MST is name + serial and has no RST, so F2 must send the name and the
+; serial rather than the stock report+exchange.
+SentExchange=Jon
+CWF1=cq mst %mc
+CWF2=%c %xm %xn
+CWF3=%c agn
+CWF4=tu %mc
+CWF5=%mc
+CWF7=agn?

@@ -1,0 +1,47 @@
+; Kansas QSO Party - the OUT OF STATE side (what N8EM operates).
+; Rules read from ksqsoparty.org/rules/KSQPRules2026.pdf, 2026-08-29.
+;
+; Exchange: Kansas stations send their COUNTY, everyone else sends their
+; state or province. So you send MI and copy a 3-letter county into MSG r.
+;
+; IMPORTANT: put the county you receive in the MSG r box, not the NR box -
+; that is the field the multiplier is counted from.
+[Contest]
+Name=KS-QSO-PARTY
+DisplayName=Kansas QSO Party (out of state)
+; The Cabrillo tag is KSQP, which is NOT the same as the ADIF contest id
+; KS-QSO-PARTY that names this file.
+CabrilloName=KSQP
+Mode=BOTH
+
+; Once per band, and the modes count separately.
+DupeType=3
+
+; What you send: your state.
+SentExchange=MI
+
+; CW is worth 2, phone and digital 1 each.
+PointsPerContact=1
+PointsMultByMode=CW, 2
+
+; Multiplier is each Kansas county worked - ONCE for the contest, not per
+; band (105 counties available). The county arrives in the MSG r box.
+Multiplier1Name=Exchange
+IsMult1Per=4
+
+; LIMITATION, know this before trusting the score: out-of-state entrants
+; only get credit for working KANSAS stations, but the rule engine has no
+; way to say "only stations in state X". A QSO with another out-of-state
+; station will still score its points here, though it correctly counts no
+; multiplier. Treat the score as an upper bound and check before submitting.
+
+; F-keys for this contest. These override the global CW macros only while
+; this contest is loaded; your everyday set is untouched and comes back the
+; moment you leave it.
+CWF1=cq ks qp %mc %mc
+CWF2=%c 5nn mi
+CWF3=%c qso b4
+CWF4=tu %mc
+CWF5=%mc
+CWF7=agn?
+CWF8=5nn mi

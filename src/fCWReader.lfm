@@ -1,0 +1,82 @@
+object frmCWReader: TfrmCWReader
+  Left = 400
+  Height = 260
+  Top = 300
+  Width = 520
+  Caption = 'CW reader'
+  ClientHeight = 260
+  ClientWidth = 520
+  OnClose = FormClose
+  OnCreate = FormCreate
+  OnShow = FormShow
+  LCLVersion = '3.8.0.0'
+  object pnlBottom: TPanel
+    Left = 0
+    Height = 34
+    Top = 203
+    Width = 520
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 34
+    ClientWidth = 520
+    TabOrder = 0
+    object btnClear: TButton
+      Left = 6
+      Height = 25
+      Top = 4
+      Width = 80
+      Caption = 'Clear'
+      OnClick = btnClearClick
+      TabOrder = 0
+    end
+    object btnSmaller: TButton
+      Left = 94
+      Height = 25
+      Top = 4
+      Width = 40
+      Caption = 'A-'
+      OnClick = btnSmallerClick
+      TabOrder = 1
+    end
+    object btnBigger: TButton
+      Left = 138
+      Height = 25
+      Top = 4
+      Width = 40
+      Caption = 'A+'
+      OnClick = btnBiggerClick
+      TabOrder = 2
+    end
+  end
+  object mReader: TMemo
+    Left = 0
+    Height = 203
+    Top = 0
+    Width = 520
+    Align = alClient
+    Font.Height = -16
+    Font.Name = 'Monospace'
+    ParentFont = False
+    ReadOnly = True
+    ScrollBars = ssAutoVertical
+    TabStop = False
+    TabOrder = 1
+    WordWrap = True
+    OnDblClick = mReaderDblClick
+  end
+  object sbReader: TStatusBar
+    Left = 0
+    Height = 23
+    Top = 237
+    Width = 520
+    Panels = <>
+    SimplePanel = True
+  end
+  object tmrPoll: TTimer
+    Enabled = False
+    Interval = 200
+    OnTimer = tmrPollTimer
+    Left = 440
+    Top = 24
+  end
+end

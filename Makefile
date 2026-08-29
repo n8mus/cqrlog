@@ -28,6 +28,7 @@ install:
 	install -d -v         $(bindir)
 	install -d -v         $(datadir)
 	install -d -v         $(datadir)/ctyfiles
+	install -d -v         $(datadir)/contests
 	install -d -v         $(datadir)/help
 	install -d -v         $(datadir)/help/img
 	install -d -v         $(datadir)/members
@@ -48,6 +49,7 @@ install:
 	install    -v -m 0755 src/cqrlog $(bindir)
 	install    -v -m 0755 tools/cqrlog-apparmor-fix $(datadir)/cqrlog-apparmor-fix
 	install    -v -m 0644 ctyfiles/* $(datadir)/ctyfiles/
+	install    -v -m 0644 contests/* $(datadir)/contests/
 	install    -v -m 0644 help/img/* $(datadir)/help/img/
 	install    -v -m 0644 help/*.*   $(datadir)/help/
 	install    -v -m 0644 members/*  $(datadir)/members/

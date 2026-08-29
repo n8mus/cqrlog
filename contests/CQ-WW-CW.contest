@@ -1,0 +1,31 @@
+; CQ World Wide DX Contest, CW
+; Exchange: RST + CQ zone. Received zone goes in the NR box.
+[Contest]
+Name=CQ-WW-CW
+DisplayName=CQ WW DX CW
+CabrilloName=CQ-WW-CW
+Mode=CW
+DupeType=2
+; 0 pts inside your own country, 1 same continent, 3 different continent.
+; The country list is checked before the continent list, so a W scores 0.
+PointsPerContact=3
+PointsByCountry=K, 0
+PointsByContinent=NA, 1
+Multiplier1Name=ZN
+IsMult1Per=1
+Multiplier2Name=CountryPrefix
+IsMult2Per=1
+
+; What you send. CQ WW's exchange is RST + your CQ zone; Michigan is 4.
+; Change this if you operate from another zone.
+SentExchange=04
+; Per-contest F-keys. These OVERRIDE the global CW macros while this contest
+; is loaded and never modify them, so leaving the contest restores your
+; everyday set with nothing to undo. Run bank falls back to these if the
+; CWRunFn form is not given.
+CWF1=cq test %mc %mc test
+CWF2=%c 5nn %xm
+CWF3=%c qso b4
+CWF4=tu %mc test
+CWF5=%mc
+CWF7=agn?

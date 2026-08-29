@@ -1,24 +1,32 @@
 object frmSCP: TfrmSCP
   Left = 520
-  Height = 200
+  Height = 260
   Top = 409
-  Width = 462
-  Caption = 'Super check partial'
-  ClientHeight = 200
-  ClientWidth = 462
-  Constraints.MinHeight = 200
-  Constraints.MinWidth = 100
+  Width = 300
+  Caption = 'Check'
+  ClientHeight = 260
+  ClientWidth = 300
+  Constraints.MinHeight = 150
+  Constraints.MinWidth = 120
   KeyPreview = True
   OnClose = FormClose
   OnKeyUp = FormKeyUp
   OnShow = FormShow
   LCLVersion = '3.6.0.0'
-  object mSCP: TMemo
+  object lbCheck: TListBox
     Left = 0
-    Height = 200
+    Height = 260
     Top = 0
-    Width = 462
+    Width = 300
     Align = alClient
+    Columns = 2
+    Font.Height = -15
+    Font.Name = 'Monospace'
+    ItemHeight = 20
+    ParentFont = False
+    Style = lbOwnerDrawFixed
     TabOrder = 0
+    OnDblClick = lbCheckDblClick
+    OnDrawItem = lbCheckDrawItem
   end
 end

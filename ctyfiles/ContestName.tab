@@ -73,8 +73,8 @@ EA-SMRE-SSB|Su Majestad El Rey de España - SSB
 EA-VHF-ATLANTIC|Atlántico V-UHF
 EA-VHF-COM|Combinado de V-UHF
 EA-VHF-COSTA-SOL|Costa del Sol V-UHF
-EA-VHF-EA|Nacional VHF
 EA-VHF-EA1RCS|Segovia EA1RCS V-UHF
+EA-VHF-EA|Nacional VHF
 EA-VHF-QSL|QSL V-UHF & 50MHz
 EA-VHF-SADURNI|Sant Sadurni V-UHF
 EA-WW-RTTY|Unión de Radioaficionados Españoles RTTY Contest
@@ -93,6 +93,7 @@ HOLYLAND|IARC Holyland Contest
 IA-QSO-PARTY|Iowa QSO Party
 IARU-FIELD-DAY|DARC IARU Region 1 Field Day
 IARU-HF|IARU HF World Championship
+ICWC-MST|ICWC Medium Speed Test (not an ADIF ID; local entry)
 ID-QSO-PARTY|Idaho QSO Party
 IL QSO Party|Illinois QSO Party
 IN-QSO-PARTY|Indiana QSO Party
@@ -144,9 +145,9 @@ PA-QSO-PARTY|Pennsylvania QSO Party
 PACC|Dutch PACC Contest
 PSK-DEATHMATCH|MDXA PSK DeathMatch (2005-2010)
 QC-QSO-PARTY|Quebec QSO Party
-RAC|Canadian Amateur Radio Society Contest
 RAC-CANADA-DAY|RAC Canada Day Contest
 RAC-CANADA-WINTER|RAC Canada Winter Contest
+RAC|Canadian Amateur Radio Society Contest
 RDAC|Russian District Award Contest
 RDXC|Russian DX Contest
 REF-160M|Reseau des Emetteurs Francais 160m Contest

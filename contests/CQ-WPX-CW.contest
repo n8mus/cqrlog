@@ -1,0 +1,29 @@
+; CQ WPX Contest, CW
+; Exchange: RST + serial. Multiplier is the call prefix, once per contest.
+[Contest]
+Name=CQ-WPX-CW
+DisplayName=CQ WPX CW
+CabrilloName=CQ-WPX-CW
+Mode=CW
+DupeType=2
+QsoNumbersByBand=0
+; From NA: 1 pt same country, 2 pts other NA country, 3 pts other continent,
+; doubled on 40/80/160. Expressed as a continent base plus a band factor.
+PointsPerContact=3
+PointsByCountry=K, 1
+; Own-country QSOs are 1 point on EVERY band - the low band doubling below
+; must not touch them, which is what this flag is for.
+PointsByCountryIsFinal=1
+PointsByContinent=NA, 2
+PointsMultByBand=160M, 2, 80M, 2, 40M, 2
+Multiplier1Name=WPXPrefix
+IsMult1Per=4
+
+; WPX sends RST + serial, so there is no message part to preset.
+SentExchange=
+CWF1=cq test %mc %mc test
+CWF2=%c 5nn %xns
+CWF3=%c qso b4
+CWF4=tu %mc test
+CWF5=%mc
+CWF7=agn?

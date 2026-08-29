@@ -1,12 +1,12 @@
 object frmCabrilloExport: TfrmCabrilloExport
   Left = 631
-  Height = 687
+  Height = 789
   Top = 0
   Width = 516
   HelpType = htKeyword
   HelpKeyword = 'help/h3.html#ah28'
   Caption = 'Cabrillo export'
-  ClientHeight = 687
+  ClientHeight = 789
   ClientWidth = 516
   OnClose = FormClose
   OnCreate = FormCreate
@@ -164,13 +164,94 @@ object frmCabrilloExport: TfrmCabrilloExport
     Style = csDropDownList
     TabOrder = 4
   end
+  object lblCabAssisted: TLabel
+    AnchorSideLeft.Control = lblCabfileName
+    AnchorSideTop.Control = cmbCabAssisted
+    AnchorSideTop.Side = asrCenter
+    Left = 6
+    Height = 17
+    Top = 141
+    Width = 59
+    Caption = 'Assisted:'
+    ParentColor = False
+  end
+  object cmbCabAssisted: TComboBox
+    AnchorSideLeft.Control = cmbCabPower
+    AnchorSideTop.Control = cmbCabPower
+    AnchorSideTop.Side = asrBottom
+    Left = 123
+    Height = 29
+    Hint = 'Cluster, skimmer or RBN spots used = ASSISTED'
+    Top = 137
+    Width = 150
+    ItemHeight = 0
+    Items.Strings = (
+      'NON-ASSISTED'
+      'ASSISTED'
+    )
+    Style = csDropDownList
+    TabOrder = 20
+  end
+  object lblCabTransmitter: TLabel
+    AnchorSideLeft.Control = lblCabfileName
+    AnchorSideTop.Control = cmbCabTransmitter
+    AnchorSideTop.Side = asrCenter
+    Left = 6
+    Height = 17
+    Top = 175
+    Width = 80
+    Caption = 'Transmitter:'
+    ParentColor = False
+  end
+  object cmbCabTransmitter: TComboBox
+    AnchorSideLeft.Control = cmbCabPower
+    AnchorSideTop.Control = cmbCabAssisted
+    AnchorSideTop.Side = asrBottom
+    Left = 123
+    Height = 29
+    Hint = 'Cabrillo CATEGORY-TRANSMITTER'
+    Top = 171
+    Width = 150
+    ItemHeight = 0
+    Items.Strings = (
+      'ONE'
+      'TWO'
+      'LIMITED'
+      'UNLIMITED'
+      'SWL'
+    )
+    Style = csDropDownList
+    TabOrder = 21
+  end
+  object lblCabClaimedScore: TLabel
+    AnchorSideLeft.Control = lblCabfileName
+    AnchorSideTop.Control = edtCabClaimedScore
+    AnchorSideTop.Side = asrCenter
+    Left = 6
+    Height = 17
+    Top = 209
+    Width = 93
+    Caption = 'Claimed score:'
+    ParentColor = False
+  end
+  object edtCabClaimedScore: TEdit
+    AnchorSideLeft.Control = cmbCabPower
+    AnchorSideTop.Control = cmbCabTransmitter
+    AnchorSideTop.Side = asrBottom
+    Left = 123
+    Height = 34
+    Hint = 'Leave empty to omit the score from the header'
+    Top = 205
+    Width = 150
+    TabOrder = 22
+  end
   object lblCabLocation: TLabel
     AnchorSideLeft.Control = lblCabfileName
     AnchorSideTop.Control = edtCabLocation
     AnchorSideTop.Side = asrCenter
     Left = 6
     Height = 17
-    Top = 141
+    Top = 243
     Width = 59
     Caption = 'Location:'
     ParentColor = False
@@ -712,7 +793,7 @@ object frmCabrilloExport: TfrmCabrilloExport
   end
   object edtCabLocation: TEdit
     AnchorSideLeft.Control = cmbCabPower
-    AnchorSideTop.Control = cmbCabPower
+    AnchorSideTop.Control = edtCabClaimedScore
     AnchorSideTop.Side = asrBottom
     AnchorSideRight.Control = cmbCabContestName
     AnchorSideRight.Side = asrBottom

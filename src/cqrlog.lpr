@@ -14,7 +14,7 @@ uses
   fQSODetails, fUpgrade, fWAZITUStat, fIOTAStat, fClubSettings, fLoadClub,
   fRefCall, fGraphStat, fBandMap, fBandMapWatch, fLongNote, fDatabaseUpdate,
   fExLabelPrint, fImportLoTWWeb, fLoTWExport, fGroupEdit, fDefaultFreq,
-  fCustomStat, fKeyTexts, fCWType, fSplitSettings, MemDSLaz, SDFLaz,
+  fCustomStat, fKeyTexts, fCWType, fCWReader, fMultipliers, uCallHistory, uN1MMUdp, fSplitSettings, MemDSLaz, SDFLaz,
   turbopoweripro, fShowStations, uMyIni, fPropagation, fSQLConsole,
   fCallAttachment, fEditDetails, fQSLViewer, fCWKeys, fSCP, fDBConnect, fNewLog,
   fRebuildMembStat, uVersion, fAbout, fChangelog, fBigSquareStat, feQSLDownload,
@@ -146,6 +146,8 @@ begin
   Application.CreateForm(TfrmRotControl, frmRotControl);
   Application.CreateForm(TfrmLogUploadStatus, frmLogUploadStatus);
   Application.CreateForm(TfrmCWType, frmCWType);
+  Application.CreateForm(TfrmCWReader, frmCWReader);
+  Application.CreateForm(TfrmMultipliers, frmMultipliers);
   Application.CreateForm(TfrmRbnMonitor, frmRbnMonitor);
   Application.CreateForm(TfrmWorkedGrids, frmWorkedGrids);
   Application.CreateForm(TfrmPropDK0WCY, frmPropDK0WCY);

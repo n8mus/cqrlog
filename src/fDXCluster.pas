@@ -278,7 +278,7 @@ implementation
 { TfrmDXCluster }
 
 uses dUtils, fDXClusterList, dData, dDXCluster, fMain, fTRXControl, fNewQSO, fBandMap,
-     uMyIni, fPreferences, fpjson, jsonparser;
+     uMyIni, fPreferences, fpjson, jsonparser, uContestRules;
 
 procedure TfrmDXCluster.ConnectToWeb;
 var
@@ -1259,6 +1259,7 @@ var
   cLat, cLng : Currency;
   isLoTW : Boolean;
   isEQSL : Boolean;
+  mctx   : TQsoCtx;      //contest multiplier evaluation
 
   cfgUseBackColor : Boolean = True;
   cfgBckColor : TColor;
@@ -1527,6 +1528,33 @@ begin
     sColor := cfgNeedQSLColor;
   if index = 5 then
     sColor := cfgConfirmedColor;
+
+  //Contest multiplier colouring overrides worked-status colouring. During a
+  //contest "do I still need this station" is a different question from "is
+  //this a new country for my award totals", and it is the contest answer that
+  //decides whether to break a run for it. Inactive outside a contest, so the
+  //normal DX-cluster colours are untouched.
+  //
+  //Everything needed is already in hand from the lookup above - no extra
+  //country resolution, which matters because this runs on the spot threads.
+  //NeededCount takes its own short lock and never calls back out, so nesting
+  //it inside csSpotWork cannot deadlock.
+  if MultTracker.Active then
+  begin
+    mctx := Default(TQsoCtx);
+    mctx.Call       := UpperCase(call);
+    mctx.Band       := UpperCase(band);
+    mctx.Mode       := UpperCase(mode);
+    mctx.CountryPfx := UpperCase(prefix);
+    mctx.Continent  := cont;              //already upper cased above
+    mctx.ZoneCQ     := waz;
+    mctx.ZoneITU    := itu;
+    case MultTracker.NeededCount(mctx) of
+      0 : ;                               //nothing new, leave the colour
+      1 : sColor := clRed;                //single multiplier
+    else  sColor := clGreen               //double multiplier or better
+    end
+  end;
 
   if (cont='') or (prefix='') then
     ToBandMap := True; //for MM stations etc.

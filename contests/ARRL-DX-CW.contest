@@ -1,0 +1,21 @@
+; ARRL International DX Contest, CW - as worked from the USA/Canada.
+; You work DX only; the exchange you receive is power.
+[Contest]
+Name=ARRL-DX-CW
+DisplayName=ARRL DX CW (US/VE side)
+CabrilloName=ARRL-DX-CW
+Mode=CW
+DupeType=2
+IsWorkable=ExceptMyCountry
+PointsPerContact=3
+Multiplier1Name=CountryPrefix
+IsMult1Per=1
+
+; From the US/VE side ARRL DX sends RST + power.
+SentExchange=100
+CWF1=cq test %mc %mc test
+CWF2=%c 5nn %xm
+CWF3=%c qso b4
+CWF4=tu %mc test
+CWF5=%mc
+CWF7=agn?

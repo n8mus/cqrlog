@@ -166,6 +166,9 @@ type
     procedure AddToBandMap(Freq : Double; Call, Mode, Band, SplitInfo : String; Lat,Long : Double; ItemColor, BgColor : LongInt;
                            fromNewQSO : Boolean=False;isLoTW : Boolean=False;isEQSL : Boolean = False);
     procedure DeleteFromBandMap(call, mode, band : String);
+    //Spotted calls containing this fragment. Takes the band map lock itself
+    //so callers do not need to know it exists.
+    procedure MatchingCalls(const partial : String; l : TStrings);
     procedure SyncBandMap;
     procedure LoadFonts;
     procedure LoadSettings;
@@ -182,6 +185,24 @@ implementation
 uses dUtils, uMyIni, dData, fNewQSO, fBandMapFilter;
 
 { TfrmBandMap }
+
+procedure TfrmBandMap.MatchingCalls(const partial : String; l : TStrings);
+var
+  i : Integer;
+  p : String;
+begin
+  p := UpperCase(Trim(partial));
+  if Length(p) < 3 then exit;
+  EnterCriticalSection(BandMapCrit);
+  try
+    for i := 1 to BandMapItemsCount do
+      if (BandMapItems[i].Call <> '') and
+         (Pos(p,UpperCase(BandMapItems[i].Call)) > 0) then
+        l.Add(BandMapItems[i].Call)
+  finally
+    LeaveCriticalSection(BandMapCrit)
+  end
+end;
 
 procedure TfrmBandMap.AddToBandMap(Freq : Double; Call, Mode, Band, SplitInfo : String; Lat,Long : Double; ItemColor, BgColor : LongInt;
                                    fromNewQSO : Boolean=False;isLoTW : Boolean=False;isEQSL : Boolean = False);

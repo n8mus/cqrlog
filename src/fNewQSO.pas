@@ -56,6 +56,8 @@ type
     acEditQSO: TAction;
     acCWMessages: TAction;
     acCWType: TAction;
+    acCWReader: TAction;
+    acMultipliers: TAction;
     acRemoteMode: TAction;
     acQSOBefore: TAction;
     acCWFKey: TAction;
@@ -498,6 +500,10 @@ type
     procedure acAddToBandMapExecute(Sender: TObject);
     procedure acCWMessagesExecute(Sender: TObject);
     procedure acCWTypeExecute(Sender: TObject);
+    procedure acCWReaderExecute(Sender: TObject);
+    procedure acMultipliersExecute(Sender: TObject);
+    procedure SendN1MMContact;
+    procedure SendN1MMRadioInfo;
     procedure acCloseExecute(Sender: TObject);
     procedure acDXCCCfmExecute(Sender: TObject);
     procedure acDXClusterExecute(Sender: TObject);
@@ -739,6 +745,7 @@ type
     WsjtxSock             : TUDPBlockSocket; //receive socket
     WsjtxSockS            : TUDPBlockSocket; //multicast send socket
     ADIFSock              : TUDPBlockSocket;
+    fLastN1MMRadio        : TDateTime;       //rate limit for the RadioInfo heartbeat
     ConsoleSock           : TUDPBlockSocket; //always-on console log bridge (UDP ADIF)
     tmrConsole            : TTimer;          //polls ConsoleSock; runs with any remote mode
     tmrLoTWAuto           : TTimer;          //once-a-day LoTW confirmation auto-download (opt-in)
@@ -889,7 +896,7 @@ uses dUtils, fChangeLocator, fChangeOperator, dDXCC, dDXCluster, dData, fMain, f
      fImportLoTWWeb, feQSLDownload,
      fTRXControl, fPreferences, fSplash, fDXCluster, fDXCCStat,fQSLMgr, fSendSpot,
      fQSODetails, fWAZITUStat, fDOKStat, fIOTAStat, fGraphStat, fImportProgress, fBandMap,
-     fLongNote, fRefCall, fKeyTexts, fCWType, fExportProgress, fPropagation, fCallAttachment,
+     fLongNote, fRefCall, fKeyTexts, fCWType, fCWReader, fMultipliers, uN1MMUdp, uContestRules, fExportProgress, fPropagation, fCallAttachment,
      fQSLViewer, fCWKeys, uMyIni, fDBConnect, fAbout, uVersion, fChangelog,
      fBigSquareStat, fSCP, fRotControl, fLogUploadStatus, fRbnMonitor, fException, fCommentToCall,
      fRemind, fContest, fXfldigi, dMembership, dSatellite, fCountyStat,fFreq,
@@ -2430,6 +2437,7 @@ begin
    exit;
   Running := True;
   try
+    SendN1MMRadioInfo;
     if (not (fViewQSO or fEditQSO)) then
     begin
       if cbOffline.Checked and (not AnyRemoteOn) then
@@ -3658,6 +3666,10 @@ begin
                    edtPotaHuntedRef.Text
                    )
    end;
+  //Tell the N1MM ecosystem about the QSO while the form still holds it -
+  //ClearAll further down wipes these fields.
+  SendN1MMContact;
+
   if (cmbPropagation.Text = 'SAT|Satellite') then
   begin
      if (cqrini.ReadBool('NewQSO','UpdateAMSATstatus',False)) then
@@ -3856,7 +3868,7 @@ begin
   begin
     lblQSLMgr.Visible := False;
     edtQSL_VIA.Text   :=  '';
-    frmSCP.mSCP.Clear;
+    frmSCP.Clear;
     exit
   end;
   if (not (fViewQSO or fEditQSO or cbOffline.Checked or lblQSOTakes.Visible)) then
@@ -4776,6 +4788,90 @@ begin
      ShowMessage('CW interface:  No keyer defined for current radio!');
 end;
 
+procedure TfrmNewQSO.acCWReaderExecute(Sender: TObject);
+begin
+  frmCWReader.Show
+end;
+
+procedure TfrmNewQSO.SendN1MMRadioInfo;
+var
+  f : Double;
+begin
+  if not N1MMUdp.Enabled then exit;
+  //N1MM sends this every 10 s. Rate limited here for the same reason: it is
+  //a heartbeat for waterfall apps, not a stream.
+  if MilliSecondsBetween(Now,fLastN1MMRadio) < 10000 then exit;
+  fLastN1MMRadio := Now;
+  try
+    if not TryStrToFloat(cmbFreq.Text,f) then exit;
+    N1MMUdp.SendRadioInfo(dmUtils.GetHostName,
+      UpperCase(cqrini.ReadString('Station','Call','')),Op,cmbMode.Text,1,
+      f*1000,f*1000,
+      frmContest.Showing and (not frmContest.chkSP.Checked),
+      False,False)
+  except
+    on E : Exception do ;
+  end
+end;
+
+procedure TfrmNewQSO.SendN1MMContact;
+var
+  c : TN1MMContact;
+  f : Double;
+begin
+  if not N1MMUdp.Enabled then exit;
+  try
+    c := Default(TN1MMContact);
+    c.ContestName := edtContestName.Text;
+    c.ContestNr   := 1;
+    //StrToDateFormat returns a TDateTime, not a string - format it rather
+    //than concatenating, or the timestamp comes out as a float.
+    c.TimeStamp   := FormatDateTime('yyyy-mm-dd',
+                       dmUtils.StrToDateFormat(edtDate.Text))+
+                     ' '+edtStartTime.Text+':00';
+    c.MyCall      := UpperCase(cqrini.ReadString('Station','Call',''));
+    c.Call        := UpperCase(edtCall.Text);
+    c.Mode        := cmbMode.Text;
+    if not TryStrToFloat(cmbFreq.Text,f) then f := 0;
+    //cmbFreq is MHz; the wire wants kHz here and the encoder turns that into
+    //tens of Hz. band is decimal MHz, a THIRD unit in the same datagram.
+    c.RxFreqKHz   := f * 1000;
+    c.TxFreqKHz   := c.RxFreqKHz;
+    c.BandMHz     := FormatFloat('0.#',f);
+    c.OperatorCall:= Op;
+    c.CountryPfx  := lblDXCC.Caption;
+    c.StationPfx  := c.MyCall;
+    c.WpxPrefix   := WpxPrefix(c.Call);
+    c.Continent   := lblCont.Caption;
+    c.Snt         := edtHisRST.Text;
+    c.Rcv         := edtMyRST.Text;
+    c.SntNr       := edtContestSerialSent.Text;
+    c.RcvNr       := edtContestSerialReceived.Text;
+    c.Exchange1   := edtContestExchangeMessageReceived.Text;
+    c.SentExchange:= edtContestExchangeMessageSent.Text;
+    c.GridSquare  := edtGrid.Text;
+    c.Qth         := edtQth.Text;
+    c.Name        := edtName.Text;
+    c.Power       := edtPwr.Text;
+    c.Zone        := lblWAZ.Caption;
+    c.Comment     := edtRemQSO.Text;
+    c.StationName := dmUtils.GetHostName;
+    c.IsRunQSO    := Ord(frmContest.Showing and (not frmContest.chkSP.Checked));
+    //The ID is the join key a consumer uses to match a later edit or delete.
+    c.ID          := dmUtils.NewGuidHex;
+    N1MMUdp.SendContact(c)
+  except
+    //Never let a broadcast failure disturb a save.
+    on E : Exception do
+      if dmData.DebugLevel>=1 then Writeln('SendN1MMContact: ',E.Message)
+  end
+end;
+
+procedure TfrmNewQSO.acMultipliersExecute(Sender: TObject);
+begin
+  frmMultipliers.Show
+end;
+
 procedure TfrmNewQSO.FormActivate(Sender: TObject);
 begin
   if minimalize then
@@ -4816,10 +4912,8 @@ begin
   if not EditQSO then
     if edtCall.Text = '' then
       ClearAll;
-  if frmSCP.Showing and (Length(edtCall.Text)>2) then
-    frmSCP.mSCP.Text := dmData.GetSCPCalls(edtCall.Text)
-  else
-    frmSCP.mSCP.Clear;
+  if frmSCP.Showing then
+    frmSCP.UpdateCheck(edtCall.Text);
   lblGrid.Font.Style:=[];
   lblGrid.Font.Color:=clDefault;
 end;

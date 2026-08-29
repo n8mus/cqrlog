@@ -1,0 +1,6 @@
+# Bench tests are compiled ad hoc with:
+#   cd src/test && fpc -Fu.. -FE. <name>.pas && ./<name>
+# Only the sources belong in the repo; everything fpc leaves behind does not.
+*
+!*.pas
+!.gitignore

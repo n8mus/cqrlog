@@ -27,7 +27,7 @@ const
   // 21, not 20 - some installs already have a stored db_version of 20 from a
   // newer build not present in this branch's history; using 21 guarantees the
   // migration below actually fires for those installs instead of being skipped.
-  cDB_MAIN_VER = 22;
+  cDB_MAIN_VER = 23;
   cDB_COMN_VER = 8;
   cDB_PING_INT = 300;  //ping interval for database connection in seconds
                        //program crashed after long time of inactivity
@@ -199,6 +199,7 @@ type
     procedure DeleteMySQLPidFile;
     procedure PrepareDirectories;
     procedure PrepareCtyData;
+    procedure PrepareContestRules;
     procedure PrepareDXCCData;
     procedure PrepareXplanetDir;
     procedure PrepareVoice_keyerDir;
@@ -281,6 +282,8 @@ type
     function  GetMyLocFromProfile(profile : String) : String;
     function  SendQSL(call,mode,freq : String; adif : Word) : String;
     function  GetSCPCalls(call : String) : String;
+    procedure GetLogCallsLike(const partial : String; l : TStrings);
+    procedure GetWorkedCallsLike(const partial, band, mode : String; l : TStrings);
     function  UsesLotw(call : String) : Boolean;
     function  OpenConnections(host,port,user,pass : String) : Boolean;
     function  LogExists(nr : Word) : Boolean;
@@ -1106,7 +1109,45 @@ begin
   if not FileExistsUTF8(fHomeDir+'sat_name.tab') then
     CopyFile(s+'sat_name.tab', fHomeDir+'sat_name.tab');
   if not FileExistsUTF8(fHomeDir+'prop_mode.tab') then
-    CopyFile(s+'prop_mode.tab', fHomeDir+'prop_mode.tab')
+    CopyFile(s+'prop_mode.tab', fHomeDir+'prop_mode.tab');
+  //TdmUtils.InsertContests reads this from HomeDir; without the copy the
+  //contest name combo in the contest window is silently empty
+  if not FileExistsUTF8(fHomeDir+C_CONTEST_LIST_FILE_NAME) then
+    CopyFile(s+C_CONTEST_LIST_FILE_NAME, fHomeDir+C_CONTEST_LIST_FILE_NAME);
+
+  PrepareContestRules
+end;
+
+procedure TdmData.PrepareContestRules;
+var
+  src,dst : String;
+  l       : TStringList;
+  i       : Integer;
+begin
+  //Contest rule definitions are seeded once and then belong to the operator:
+  //an existing file is never overwritten, because he may well have corrected
+  //a points rule we shipped wrong and should not lose that on upgrade.
+  src := ExpandFileNameUTF8('..'+PathDelim+'share'+PathDelim+'cqrlog'+
+                            PathDelim+'contests'+PathDelim);
+  dst := fHomeDir+'contests'+PathDelim;
+  if not DirectoryExistsUTF8(dst) then
+    if not CreateDirUTF8(dst) then exit;
+  if not DirectoryExistsUTF8(src) then exit;
+
+  l := TStringList.Create;
+  try
+    //the four-argument form is a procedure, not the TStringList-returning one
+    FindAllFiles(l,src,'*.contest',False);
+    for i := 0 to l.Count-1 do
+      if not FileExistsUTF8(dst+ExtractFileName(l[i])) then
+      begin
+        CopyFile(l[i],dst+ExtractFileName(l[i]));
+        if fDebugLevel>=1 then
+          Writeln('Installed contest rules: ',ExtractFileName(l[i]))
+      end
+  finally
+    l.Free
+  end
 end;
 
 procedure TdmData.PrepareDXCCData;
@@ -2490,6 +2531,75 @@ begin
   end
 end;
 
+procedure TdmData.GetWorkedCallsLike(const partial, band, mode : String; l : TStrings);
+var
+  p : String;
+begin
+  //Everything already worked on this band+mode whose call could match what is
+  //being typed. One query answers the whole Check window, instead of asking
+  //once per candidate - which during a pileup is the difference between the
+  //window keeping up with typing and not.
+  if Length(Trim(partial)) < 3 then exit;
+  p := UpperCase(Trim(partial));
+  try
+    Q1.Close;
+    if trQ1.Active then trQ1.Rollback;
+    trQ1.StartTransaction;
+    try
+      Q1.SQL.Text := 'select distinct callsign from cqrlog_main where callsign like '+
+                     QuotedStr('%'+p+'%')+
+                     ' and band='+QuotedStr(band)+
+                     ' and mode='+QuotedStr(mode);
+      Q1.Open;
+      while not Q1.Eof do
+      begin
+        l.Add(UpperCase(Q1.Fields[0].AsString));
+        Q1.Next
+      end;
+      Q1.Close
+    finally
+      trQ1.Rollback
+    end
+  except
+    on E : Exception do
+      if fDebugLevel>=1 then Writeln('GetWorkedCallsLike: ',E.Message)
+  end
+end;
+
+procedure TdmData.GetLogCallsLike(const partial : String; l : TStrings);
+var
+  p : String;
+begin
+  //Distinct calls from the log containing this fragment. Capped because the
+  //Check window refreshes on every keystroke and an operator who has typed
+  //two characters does not need four thousand answers.
+  if Length(Trim(partial)) < 3 then exit;
+  p := UpperCase(Trim(partial));
+  try
+    Q1.Close;
+    if trQ1.Active then trQ1.Rollback;
+    trQ1.StartTransaction;
+    try
+      Q1.SQL.Text := 'select distinct callsign from cqrlog_main where callsign like '+
+                     QuotedStr('%'+p+'%')+' order by callsign limit 40';
+      Q1.Open;
+      while not Q1.Eof do
+      begin
+        l.Add(Q1.Fields[0].AsString);
+        Q1.Next
+      end;
+      Q1.Close
+    finally
+      trQ1.Rollback
+    end
+  except
+    //A Check window that throws would take the entry field with it; an empty
+    //list is a survivable answer, a crash mid-pileup is not.
+    on E : Exception do
+      if fDebugLevel>=1 then Writeln('GetLogCallsLike: ',E.Message)
+  end
+end;
+
 function TdmData.GetSCPCalls(call : String) : String;
 var
   s : String = '';
@@ -3366,6 +3476,45 @@ begin
 
         trQ1.StartTransaction;
         Q1.SQL.Text := 'alter table cqrlog_main modify pota_hunted_ref varchar(80) null';
+        if fDebugLevel>=1 then Writeln(Q1.SQL.Text);
+        Q1.ExecSQL;
+        trQ1.Commit
+      end;
+
+      if (old_version < 23) then
+      begin
+        // contest scoring: points and multiplier flags are computed from the
+        // contest rules at save time and stored, so the score does not have to
+        // be re-derived from the rules on every status refresh - and so a
+        // rules change cannot silently rewrite history already submitted.
+        trQ1.StartTransaction;
+        Q1.SQL.Text := 'alter table cqrlog_main add points int default 0';
+        if fDebugLevel>=1 then Writeln(Q1.SQL.Text);
+        Q1.ExecSQL;
+        trQ1.Commit;
+
+        trQ1.StartTransaction;
+        Q1.SQL.Text := 'alter table cqrlog_main add ismult1 tinyint default 0';
+        if fDebugLevel>=1 then Writeln(Q1.SQL.Text);
+        Q1.ExecSQL;
+        trQ1.Commit;
+
+        trQ1.StartTransaction;
+        Q1.SQL.Text := 'alter table cqrlog_main add ismult2 tinyint default 0';
+        if fDebugLevel>=1 then Writeln(Q1.SQL.Text);
+        Q1.ExecSQL;
+        trQ1.Commit;
+
+        trQ1.StartTransaction;
+        Q1.SQL.Text := 'alter table cqrlog_main add ismult3 tinyint default 0';
+        if fDebugLevel>=1 then Writeln(Q1.SQL.Text);
+        Q1.ExecSQL;
+        trQ1.Commit;
+
+        // whether the QSO was made running or S&P - N1MM logs it, it drives
+        // post-contest analysis, and cqrlog already knows it from chkSP
+        trQ1.StartTransaction;
+        Q1.SQL.Text := 'alter table cqrlog_main add isrunqso tinyint default 0';
         if fDebugLevel>=1 then Writeln(Q1.SQL.Text);
         Q1.ExecSQL;
         trQ1.Commit

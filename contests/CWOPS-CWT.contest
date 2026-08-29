@@ -1,0 +1,25 @@
+; CWops CWT. No RST at all - the exchange is name + member number or state.
+; Put the received name/number in the MSG box and tick "no NR".
+[Contest]
+Name=CWOPS-CWT
+DisplayName=CWops CWT
+CabrilloName=CWOPS
+Mode=CW
+DupeType=2
+PointsPerContact=1
+; Mults are distinct callsigns worked, counted once for the whole session.
+Multiplier1Name=CallSign
+IsMult1Per=4
+; Received exchange is name + member number. The published CWops file
+; carries both, so both fill themselves once the call is complete.
+CallHistoryExchange=%NAME% %EXCH1%
+
+; CWT has no RST at all - the exchange is name + member number, or name +
+; state for non-members. Jon is not a CWops member, so: Jon MI.
+SentExchange=Jon MI
+CWF1=cq cwt %mc
+CWF2=%c %xm
+CWF3=%c agn
+CWF4=tu %mc
+CWF5=%mc
+CWF7=agn?

@@ -7,7 +7,7 @@ interface
 uses
   Classes, SysUtils, FileUtil, LResources, Forms, Controls, Graphics, Dialogs,
   StdCtrls, ExtCtrls, LCLType, Buttons, ComCtrls, ExtDlgs, Menus, Spin, Grids,
-  strutils, fscp, iniFiles;
+  strutils, fscp, iniFiles, uContestRules, uCallHistory;
 
 type
 
@@ -194,6 +194,25 @@ type
       QsoRate10,
       QsoRate60    : integer;
       CQcount      : integer;
+      //ESM state, all per-QSO and reset the moment the callsign text
+      //changes, so a half-finished QSO can never leak into the next one.
+      //throwaway receivers for ScoreContest's out params when the caller only
+      //wants the side effect
+      ScQsos,ScDupes,ScPts,
+      ScM1,ScM2,ScM3 : Integer;
+      ESMBeat      : Integer;     //how far through this QSO Enter has got
+      ESMIsDupe    : Boolean;     //cached: CheckDupe hits the DB, and the
+                                  //hint refreshes on every keystroke
+      chkESM       : TCheckBox;   //created at runtime, no .lfm edit
+      lblESMNext   : TLabel;      //shows what Enter will do next
+      popRescore   : TPopupMenu;  //right-click the status pane
+      CallHist     : TCallHistory;
+      lblCallHist  : TLabel;      //what we know about him before he sends it
+      miN1MM       : TMenuItem;   //N1MM UDP broadcast on/off
+      miOnTop      : TMenuItem;   //keep the entry window above the rest
+      //Rule engine. Nil-safe everywhere: a contest with no definition file
+      //behaves exactly as it did before this existed.
+      ContestRules : TContestRules;
 
     procedure SetActualReportForModeFromRadio;
     procedure InitInput;
@@ -213,9 +232,42 @@ type
     function CheckDupe(call:string):boolean;
     procedure CQstart(start:boolean);
     procedure ChangeStatusPop(Sender: TObject);
+    procedure ESMCreateControls;
+    procedure ESMCheckChange(Sender: TObject);
+    procedure N1MMCheckChange(Sender: TObject);
+    procedure OnTopClick(Sender: TObject);
+    procedure SaveLayoutClick(Sender: TObject);
+    procedure LoadLayoutClick(Sender: TObject);
+    procedure LayoutForms(l : TList);
+    function  ESMOn : Boolean;
+    function  ESMKeyFor(const role : String; def : Word) : Word;
+    function  ESMCallLoggable : Boolean;
+    function  ESMExchangeValid : Boolean;
+    function  ESMNextAction : Integer;
+    procedure ESMUpdateHint;
+    procedure ESMFocusExchange;
+    procedure ESMDoEnter;
+    procedure RescoreClick(Sender: TObject);
+    function  CurrentQsoCtx : TQsoCtx;
+    procedure ShowMultStatus;
+    procedure LoadCallHistory;
+    procedure PrefillFromHistory;
+    procedure LoadContestRules;
+    function  RulesLoaded : Boolean;
+    procedure RulesStatus;
   public
     { public declarations }
     ContestReady: Boolean;
+    //Scores a contest from the log. Returns -1 when that contest has no rule
+    //definition. markLastAsRun is 0/1 to stamp isrunqso on the newest QSO
+    //(only the caller who just saved it knows), or -1 to leave it alone.
+    //Public because the Cabrillo export needs it for CLAIMED-SCORE.
+    //Calls from the loaded call history containing this fragment.
+    procedure HistoryCallsLike(const partial : String; l : TStrings);
+    function ScoreContest(const contestName : String;
+                          writeBack : Boolean;
+                          markLastAsRun : Integer;
+                          out qsos,dupes,pts,m1,m2,m3 : Integer) : Integer;
     procedure SaveSettings;
   end;
 
@@ -256,7 +308,8 @@ implementation
 
 {$R *.lfm}
 
-uses dData, dUtils, dDXCC, fNewQSO, fMain, fWorkedGrids, fTRXControl, fCWKeys, fCWType, uMyIni;
+uses dData, dUtils, dDXCC, fNewQSO, fMain, fWorkedGrids, fTRXControl, fCWKeys, fCWType, uMyIni,
+     fMultipliers, uN1MMUdp, fBandMap, fCWReader, fDXCluster;
 
 procedure TfrmContest.FormKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
 var
@@ -268,6 +321,11 @@ begin
   // enter anywhere
   if key = VK_RETURN then
   begin
+    if ESMOn then
+      //ESM acts from ANY field, callsign box included - the state machine
+      //decides whether this Enter sends, logs, or does nothing at all.
+      ESMDoEnter
+    else
     if (length(edtCall.Text) > 2) and (not edtCall.Focused) then   //must be some kind of call and cursor away from edtCall
       btSave.Click;
     key := 0;
@@ -452,10 +510,12 @@ begin
   frmContest.ShowOnTop;
   frmContest.SetFocus;
 
-   if CheckDupe(edtCall.Text) then
+   ESMIsDupe := CheckDupe(edtCall.Text);
+   if ESMIsDupe then
     Begin
-     //send macro F3
-     if ((not chkSP.Checked) and (length(edtCall.Text)>2)) then
+     //send macro F3 - but not under ESM, where the dupe message is one of the
+     //things Enter decides to send; firing it here too would double-key it
+     if ((not ESMOn) and (not chkSP.Checked) and (length(edtCall.Text)>2)) then
               Begin
                 FmemorySent:=true;
                 SendFmemory(VK_F3);
@@ -463,6 +523,11 @@ begin
     end;
 
   ShowStatusBarInfo;
+  //Only now does frmNewQSO have the country lookup done, so this is the
+  //earliest point the multiplier colour can be decided.
+  ShowMultStatus;
+  PrefillFromHistory;
+  ESMUpdateHint;
 end;
 
 procedure TfrmContest.btSaveClick(Sender: TObject);
@@ -526,6 +591,14 @@ begin
   if dmData.DebugLevel >= 1 then
     Writeln('input finale');
   ChkSerialNrUpd(chkNRInc.Checked);
+
+  //Score the QSO we just wrote. Appending to the log can only ever change the
+  //new row - a dupe or multiplier is decided by what came BEFORE it - so this
+  //writes exactly one row, and stamps run/S&P while we still know it.
+  if RulesLoaded then
+    ScoreContest(cmbContestName.Text,True,Ord(not chkSP.Checked),
+                 ScQsos,ScDupes,ScPts,ScM1,ScM2,ScM3);
+
   tmrScore.Enabled:=true;
   initInput;
 end;
@@ -767,6 +840,10 @@ begin
      end;
    cqrini.WriteBool('CW','S&P',chkSP.Checked);
    frmNewQSO.UpdateFKeyLabels;
+   //Run and S&P walk different ESM paths, so a mid-QSO switch has to start
+   //that QSO's beat count over rather than carry it across.
+   ESMBeat := 0;
+   ESMUpdateHint;
 end;
 
 procedure TfrmContest.chkTrueRSTChange(Sender: TObject);
@@ -912,8 +989,32 @@ begin
       end;
      }
      if (WasContestNameChange <> cmbContestName.Text) then
+     begin
         frmTRXControl.DisableRitXit;
+        //Reload the rule file only when the contest actually changed, so the
+        //score timer is not re-reading it off disk every few seconds.
+        LoadContestRules
+     end;
      WasContestNameChange :=cmbContestName.Text;
+
+     //A contest with a definition file scores itself; everything else falls
+     //through to the generic counters exactly as before.
+     //Tell the ecosystem which contest is now live. N1MM sends AppInfo on
+     //program start and whenever the contest selection changes.
+     N1MMUdp.Configure;
+     N1MMUdp.SendAppInfo(dmData.DBName,cmbContestName.Text,
+                         dmUtils.GetHostName,
+                         UpperCase(cqrini.ReadString('Station','Call','')),1);
+
+     if RulesLoaded then
+     begin
+       UseStatus:=5;
+       sgStatus.Visible:=False;
+       RulesStatus;
+       tmrScore.Enabled:=True;
+       Exit
+     end;
+
      UseStatus:=0;  //Common status display for contests where name is not '' and does not fit to any above
      for f:=10 to 20 do
       sgStatus.Columns.Items[f-9].Visible:=popCommonStatus.Items[f].Checked;
@@ -924,6 +1025,8 @@ end;
 procedure TfrmContest.edtRSTrEnter(Sender: TObject); //launch memory key F2 when RSTr,NRr or MSGr is entered
 begin
    if FmemorySent then exit;
+   //Under ESM the exchange goes out on Enter, not on arriving in this field.
+   if ESMOn then exit;
 
     //send macro F2
     if ((not chkSP.Checked) and (length(edtCall.Text)>2)) then
@@ -974,12 +1077,16 @@ end;
 
 procedure TfrmContest.edtCallChange(Sender: TObject);
 begin
+  //A different station means a fresh QSO: restart the beat count so a
+  //corrected callsign cannot inherit the previous station's progress.
+  ESMBeat := 0;
   CQstart(false);
-  if frmSCP.Showing and (Length(edtCall.Text)>2) then
-    frmSCP.mSCP.Text := dmData.GetSCPCalls(edtCall.Text)
-  else
-    frmSCP.mSCP.Clear;
-  CheckDupe(edtCall.Text);
+  if frmSCP.Showing then
+    frmSCP.UpdateCheck(edtCall.Text);
+  //This is the one place the dupe query already runs per keystroke; cache it
+  //so ESMUpdateHint does not fire a second WkdCall lookup on every character.
+  ESMIsDupe := CheckDupe(edtCall.Text);
+  ESMUpdateHint;
   if not (edtCall.Text='') then //This prevents focus move to NewQSO when edtCall deleted to empty
       frmNewQSO.edtCall.text:=edtCall.Text;
 
@@ -1013,6 +1120,9 @@ end;
 procedure TfrmContest.edtSRXChange(Sender: TObject);
 begin
   frmNewQSO.edtContestSerialReceived.Text:=edtSRX.Text;
+  //Copying his number is what flips the pending action from AGN? to TU+log,
+  //so the hint has to follow the keystrokes, not just the Enters.
+  ESMUpdateHint;
 end;
 
 procedure TfrmContest.edtSRXStrChange(Sender: TObject);
@@ -1198,6 +1308,7 @@ begin
   chkLoc.Caption            :=cqrini.ReadString('frmContest','MsgIsStr','MSG is Grid');
   MsgIs                     :=cqrini.ReadInteger('frmContest','MsgIs',1); //defaults to MSG is Grid
   chkSP.Checked             := cqrini.ReadBool('frmContest', 'SP', False);
+  ESMCreateControls;
 
   edtSTX.Text               := cqrini.ReadString('frmContest', 'STX', '');
   ResetStx                  := edtSTX.Text;
@@ -1241,6 +1352,9 @@ begin
   MWC80:=0;
 
   MyAdif:= dmDXCC.id_country(cqrini.ReadString('Station', 'Call', ''), Now(), Mypfx, Mycont,  Mycountry, MyWAZ, Myposun, MyITU, Mylat, Mylong);
+  //Hand my own entity to the tracker so the spot threads can evaluate
+  //"EU only"/"DX only" rules without reaching into this form.
+  MultTracker.SetMyStation(Mypfx,Mycont);
   mnuOwnCountryCount.Caption:=Mycont+' country count';
   mnuOwnCountryList.Caption:=Mycont+' country list';
   FmemorySent:=False;
@@ -1610,6 +1724,7 @@ procedure TfrmContest.InitInput;
 Begin
   SetActualReportForModeFromRadio;
   FmemorySent:=False;
+  ESMBeat:=0;
 
   if not ((edtSTX.Text <> '') and (ResetStx = ''))  then
     edtSTX.Text := ResetStx;
@@ -1762,6 +1877,858 @@ begin
       sbContest.Panels.Items[4].Text := frmNewQSO.lblCont.Caption;
 end;
 
+{ ---------------------------------------------------------------------------
+  Rule-driven contest scoring.
+
+  Everything here is a no-op unless the selected contest has a definition file
+  in ~/.config/cqrlog/contests/. Without one the window behaves exactly as it
+  did before the rule engine existed - dupe radio buttons, generic counters.
+
+  The score is computed by scanning the contest's QSOs, NOT by trusting the UI
+  or accumulating as we go. Two reasons: a multiplier is only "new" relative to
+  everything worked before it, so it can only be decided in log order; and any
+  scorer that reads live entry-field state will eventually score the whole log
+  against whatever call happens to be typed at the time.
+
+  The scan is cheap because cqrlog already stores adif, cont, waz, itu, loc and
+  state on every QSO - no per-row country lookup, which is what would otherwise
+  make this far too slow to run on a timer.
+  --------------------------------------------------------------------------- }
+
+function TfrmContest.RulesLoaded : Boolean;
+begin
+  Result := (ContestRules <> nil) and ContestRules.Loaded
+end;
+
+{ The station in the callsign box, described the way the rule engine wants it.
+
+  Everything here is already on screen: frmNewQSO.edtCallExit has just run a
+  country lookup and parked the results in its labels. Re-deriving them would
+  cost another 5-10 ms of country-file scanning per keystroke for no gain. }
+function TfrmContest.CurrentQsoCtx : TQsoCtx;
+begin
+  Result := Default(TQsoCtx);
+  Result.Call         := UpperCase(Trim(edtCall.Text));
+  Result.Band         := UpperCase(dmUtils.GetBandFromFreq(frmNewQSO.cmbFreq.Text));
+  Result.Mode         := UpperCase(Trim(frmNewQSO.cmbMode.Text));
+  Result.CountryPfx   := UpperCase(Trim(frmNewQSO.lblDXCC.Caption));
+  Result.Continent    := UpperCase(Trim(frmNewQSO.lblCont.Caption));
+  Result.ZoneCQ       := Trim(frmNewQSO.lblWAZ.Caption);
+  Result.ZoneITU      := Trim(frmNewQSO.lblITU.Caption);
+  Result.Grid         := Trim(frmNewQSO.edtGrid.Text);
+  Result.State        := Trim(frmNewQSO.edtState.Text);
+  Result.SerialRcvd   := Trim(edtSRX.Text);
+  Result.ExchRcvd     := Trim(edtSRXStr.Text);
+  Result.MyCountryPfx := Mypfx;
+  Result.MyContinent  := Mycont;
+  Result.IsDupe       := ESMIsDupe
+end;
+
+{ N1MM's colour language on the callsign box: red = single multiplier,
+  green = double or better, blue = new station, grey = dupe.
+
+  Only applied while a contest with rules is loaded. Without it cqrlog's own
+  red-bold-for-dupe stays, which matters because red meaning "dupe" in one
+  contest and "multiplier" in another is how you work a dupe thinking it is a
+  new mult. }
+procedure TfrmContest.ShowMultStatus;
+var
+  ctx  : TQsoCtx;
+  need : Integer;
+begin
+  if not MultTracker.Active then exit;         //leave the legacy colouring
+  if Trim(edtCall.Text) = '' then exit;
+
+  ctx := CurrentQsoCtx;
+  if ctx.IsDupe then
+  begin
+    edtCall.Font.Color := clGray;
+    edtCall.Font.Style := [];
+    exit
+  end;
+
+  need := MultTracker.NeededCount(ctx);
+  case need of
+    0 : begin                                  //workable, but nothing new
+          edtCall.Font.Color := clBlue;
+          edtCall.Font.Style := []
+        end;
+    1 : begin
+          edtCall.Font.Color := clRed;
+          edtCall.Font.Style := [fsBold]
+        end;
+  else
+        begin                                  //double mult or better
+          edtCall.Font.Color := clGreen;
+          edtCall.Font.Style := [fsBold]
+        end
+  end
+end;
+
+{ Call history: what we already know about this operator.
+
+  Loaded per contest from ~/.config/cqrlog/callhistory/<CONTEST>.txt in N1MM's
+  format, so the published files work unmodified. }
+procedure TfrmContest.HistoryCallsLike(const partial : String; l : TStrings);
+begin
+  if (CallHist = nil) or (CallHist.Count = 0) then exit;
+  CallHist.MatchingCalls(partial,l,40)
+end;
+
+procedure TfrmContest.LoadCallHistory;
+var
+  fn : String;
+begin
+  if CallHist = nil then CallHist := TCallHistory.Create;
+  CallHist.Clear;
+  fn := CallHistoryFile(dmData.HomeDir,cmbContestName.Text);
+  if fn = '' then exit;
+  if CallHist.LoadFromFile(fn) then
+  begin
+    if dmData.DebugLevel>=1 then
+      Writeln('Call history: ',CallHist.Count,' calls from ',fn);
+    //A malformed published file is worth saying out loud - the CWops list
+    //ships with two columns both named Misc, which silently drops the member
+    //number and lands the state in the exchange field.
+    if (CallHist.DuplicateColumns <> '') and (lblCallHist <> nil) then
+      lblCallHist.Caption := 'call history: duplicate column '+
+                             CallHist.DuplicateColumns
+  end
+  else
+    if dmData.DebugLevel>=1 then
+      Writeln('No call history for ',cmbContestName.Text,' (looked for ',fn,')')
+end;
+
+{ Fill the blanks - and only the blanks.
+
+  N1MM's rule, and it matters: prefill must never overwrite something the
+  operator typed, because what he copied off the air beats what a file from
+  last year believes. }
+procedure TfrmContest.PrefillFromHistory;
+var
+  rec : TCallHistRec;
+  s   : String;
+begin
+  if lblCallHist <> nil then lblCallHist.Caption := '';
+  if (CallHist = nil) or (CallHist.Count = 0) then exit;
+  if not RulesLoaded then exit;
+  if not CallHist.Lookup(edtCall.Text,rec) then exit;
+
+  //Show what we know whether or not anything gets filled, so the operator can
+  //see the prefill came from a real hit.
+  s := Trim(rec.Name);
+  if rec.State <> '' then s := s + ' ' + rec.State;
+  if rec.Exch1 <> '' then s := s + ' #' + rec.Exch1;
+  if rec.CqZone <> '' then s := s + ' z' + rec.CqZone;
+  if lblCallHist <> nil then lblCallHist.Caption := Trim(s);
+
+  if ContestRules.HistName and (Trim(frmNewQSO.edtName.Text) = '') and
+     (rec.Name <> '') then
+    frmNewQSO.edtName.Text := rec.Name;
+
+  if (ContestRules.HistExch <> '') and (Trim(edtSRXStr.Text) = '') then
+  begin
+    s := CallHist.Expand(ContestRules.HistExch,rec);
+    if s <> '' then edtSRXStr.Text := s
+  end
+end;
+
+procedure TfrmContest.LoadContestRules;
+var
+  fn : String;
+begin
+  if ContestRules = nil then ContestRules := TContestRules.Create;
+  ContestRules.Clear;
+  fn := ContestDefFile(dmData.HomeDir,cmbContestName.Text);
+  //The spot threads colour against their own copy of the rules; swapping it
+  //here keeps them from scoring the new contest with the old contest's keys.
+  MultTracker.SetRulesFile(fn);
+  LoadCallHistory;
+  if fn = '' then exit;
+  if ContestRules.LoadFromFile(fn) then
+  begin
+    if dmData.DebugLevel>=1 then
+      Writeln('Contest rules loaded: ',fn);
+    //The sent exchange belongs to the contest, so selecting one replaces
+    //whatever the last contest left in the box - which is how a stale "61"
+    //from a previous session ends up going out on the air.
+    if ContestRules.SentExch <> '' then
+    begin
+      edtSTXStr.Text := ContestRules.SentExch;
+      ResetStxStr    := ContestRules.SentExch;
+      cqrini.WriteString('frmContest','STXStr',ContestRules.SentExch)
+    end;
+    frmNewQSO.UpdateFKeyLabels
+  end
+  else
+    if dmData.DebugLevel>=1 then
+      Writeln('No contest rules for ',cmbContestName.Text,' (looked for ',fn,')')
+end;
+
+function TfrmContest.ScoreContest(const contestName : String;
+                                  writeBack : Boolean;
+                                  markLastAsRun : Integer;
+                                  out qsos,dupes,pts,m1,m2,m3 : Integer) : Integer;
+var
+  rules      : TContestRules;
+  ctx        : TQsoCtx;
+  worked     : TStringList;   //dupe keys already seen, in log order
+  mults      : array[1..3] of TStringList;
+  upd        : TStringList;   //UPDATEs collected while the cursor is open
+  i,rowPts   : Integer;
+  isM        : array[1..3] of Integer;
+  key,mk,fn  : String;
+  rowId,lastId : LongInt;
+  feedTracker  : Boolean;
+begin
+  Result := -1;
+  qsos := 0; dupes := 0; pts := 0; m1 := 0; m2 := 0; m3 := 0;
+  if Trim(contestName) = '' then exit;
+
+  //Only the contest actually being operated feeds the spot-colouring tracker.
+  //The Cabrillo export scores OTHER contests through here and must not
+  //repopulate it with a contest that is not on the air.
+  feedTracker := SameText(Trim(contestName),Trim(cmbContestName.Text));
+
+  rules := TContestRules.Create;
+  worked := TStringList.Create;
+  upd := TStringList.Create;
+  for i := 1 to 3 do mults[i] := TStringList.Create;
+  try
+    fn := ContestDefFile(dmData.HomeDir,contestName);
+    if not rules.LoadFromFile(fn) then exit;   //no definition, no score
+    if feedTracker then MultTracker.BeginRebuild;
+
+    worked.Sorted := True;
+    worked.Duplicates := dupIgnore;
+    for i := 1 to 3 do
+    begin
+      mults[i].Sorted := True;
+      mults[i].Duplicates := dupIgnore
+    end;
+    lastId := -1;
+
+    dmData.Q.Close;
+    if dmData.trQ.Active then dmData.trQ.Rollback;
+    dmData.trQ.StartTransaction;
+    try
+      //dxcc_id carries the entity prefix, so the country multiplier and the
+      //workability test both come out of one join instead of 5-10 ms of
+      //country-file scanning per row.
+      dmData.Q.SQL.Text :=
+        'select m.id_cqrlog_main,m.callsign,m.band,m.mode,m.cont,m.waz,m.itu,'+
+        'm.loc,m.state,m.srx,m.srx_string,m.points,m.ismult1,m.ismult2,'+
+        'm.ismult3,d.dxcc_ref '+
+        'from cqrlog_main m left join dxcc_id d on d.adif=m.adif '+
+        'where m.contestname='+QuotedStr(contestName)+' '+
+        'order by m.qsodate,m.time_on,m.id_cqrlog_main';
+      dmData.Q.Open;
+      while not dmData.Q.Eof do
+      begin
+        rowId := dmData.Q.FieldByName('id_cqrlog_main').AsInteger;
+        ctx := Default(TQsoCtx);
+        ctx.Call         := UpperCase(Trim(dmData.Q.FieldByName('callsign').AsString));
+        ctx.Band         := UpperCase(Trim(dmData.Q.FieldByName('band').AsString));
+        ctx.Mode         := UpperCase(Trim(dmData.Q.FieldByName('mode').AsString));
+        ctx.Continent    := UpperCase(Trim(dmData.Q.FieldByName('cont').AsString));
+        ctx.CountryPfx   := UpperCase(Trim(dmData.Q.FieldByName('dxcc_ref').AsString));
+        ctx.ZoneCQ       := Trim(dmData.Q.FieldByName('waz').AsString);
+        ctx.ZoneITU      := Trim(dmData.Q.FieldByName('itu').AsString);
+        ctx.Grid         := Trim(dmData.Q.FieldByName('loc').AsString);
+        ctx.State        := Trim(dmData.Q.FieldByName('state').AsString);
+        ctx.SerialRcvd   := Trim(dmData.Q.FieldByName('srx').AsString);
+        ctx.ExchRcvd     := Trim(dmData.Q.FieldByName('srx_string').AsString);
+        ctx.MyCountryPfx := Mypfx;
+        ctx.MyContinent  := Mycont;
+
+        //Dupe is recomputed from what came BEFORE this row, never from the
+        //entry form - a stuck UI flag would otherwise rescore the whole log.
+        case rules.DupeType of
+          dpOncePerContest : key := ctx.Call;
+          dpPerBandMode    : key := ctx.Call+'|'+ctx.Band+'|'+ctx.Mode;
+          dpNone           : key := '';
+        else                  key := ctx.Call+'|'+ctx.Band
+        end;
+        ctx.IsDupe := (key <> '') and (worked.IndexOf(key) >= 0);
+        if key <> '' then worked.Add(key);
+
+        rowPts := rules.QsoPoints(ctx);
+        Inc(qsos);
+        if ctx.IsDupe then Inc(dupes);
+        Inc(pts,rowPts);
+        for i := 1 to 3 do
+        begin
+          mk := rules.MultKey(i,ctx);
+          //"Is this row a multiplier" means it is the FIRST row to show that
+          //key - which is only knowable here, in log order.
+          if (mk <> '') and (mults[i].IndexOf(mk) < 0) then
+          begin
+            mults[i].Add(mk);
+            isM[i] := 1
+          end
+          else
+            isM[i] := 0;
+          if feedTracker and (mk <> '') then MultTracker.AddWorked(i,mk)
+        end;
+
+        if writeBack then
+        begin
+          //Only rows whose stored values actually changed, so a rescore of an
+          //already-scored contest writes nothing at all.
+          if (dmData.Q.FieldByName('points').AsInteger <> rowPts) or
+             (dmData.Q.FieldByName('ismult1').AsInteger <> isM[1]) or
+             (dmData.Q.FieldByName('ismult2').AsInteger <> isM[2]) or
+             (dmData.Q.FieldByName('ismult3').AsInteger <> isM[3]) then
+            upd.Add('update cqrlog_main set points='+IntToStr(rowPts)+
+                    ',ismult1='+IntToStr(isM[1])+
+                    ',ismult2='+IntToStr(isM[2])+
+                    ',ismult3='+IntToStr(isM[3])+
+                    ' where id_cqrlog_main='+IntToStr(rowId));
+          lastId := rowId
+        end;
+
+        dmData.Q.Next
+      end;
+      dmData.Q.Close
+    finally
+      dmData.trQ.Rollback
+    end;
+
+    //Run/S&P is not derivable from the log - it is only known at save time,
+    //so the caller tells us about the row it just wrote.
+    if writeBack and (markLastAsRun >= 0) and (lastId >= 0) then
+      upd.Add('update cqrlog_main set isrunqso='+IntToStr(markLastAsRun)+
+              ' where id_cqrlog_main='+IntToStr(lastId));
+
+    if writeBack and (upd.Count > 0) then
+    begin
+      //CRITICAL: the cqrlog_main_bu trigger queues every UPDATE into
+      //log_changes for online re-upload unless @cqr_qsl_mark is set. Scoring
+      //touches every QSO in the contest, so without this guard one rescore
+      //re-uploads the whole contest to LoTW, eQSL and QRZ.
+      dmData.Q1.Close;
+      if dmData.trQ1.Active then dmData.trQ1.Rollback;
+      try
+        dmData.trQ1.StartTransaction;
+        try
+          dmData.Q1.SQL.Text := 'SET @cqr_qsl_mark=1';
+          dmData.Q1.ExecSQL;
+          for i := 0 to upd.Count-1 do
+          begin
+            dmData.Q1.SQL.Text := upd[i];
+            dmData.Q1.ExecSQL
+          end;
+          dmData.trQ1.Commit
+        except
+          //Roll back rather than let the reset below commit us: a contest
+          //scored half way is worse than one not scored at all.
+          if dmData.trQ1.Active then dmData.trQ1.Rollback;
+          raise
+        end
+      finally
+        //@cqr_qsl_mark is CONNECTION scoped, so a rollback does not clear it.
+        //It has to be reset explicitly or every QSO saved afterwards would
+        //quietly skip the upload ledger for the rest of the session.
+        if not dmData.trQ1.Active then dmData.trQ1.StartTransaction;
+        dmData.Q1.SQL.Text := 'SET @cqr_qsl_mark=NULL';
+        dmData.Q1.ExecSQL;
+        dmData.trQ1.Commit
+      end;
+      if dmData.DebugLevel>=1 then
+        Writeln('Contest rescore: ',upd.Count,' rows updated for ',contestName)
+    end;
+
+    if feedTracker then MultTracker.EndRebuild;
+
+    m1 := mults[1].Count;
+    m2 := mults[2].Count;
+    m3 := mults[3].Count;
+    Result := rules.Score(pts,m1,m2,m3)
+  finally
+    for i := 1 to 3 do mults[i].Free;
+    upd.Free;
+    worked.Free;
+    rules.Free
+  end
+end;
+
+procedure TfrmContest.RulesStatus;
+var
+  qsos,dupes,pts,
+  m1,m2,m3,score : Integer;
+  i              : Integer;
+begin
+  if not RulesLoaded then exit;
+  score := ScoreContest(cmbContestName.Text,False,-1,qsos,dupes,pts,m1,m2,m3);
+  if score < 0 then exit;
+
+  mStatus.Clear;
+  mStatus.Lines.Add(ContestRules.DisplayName);
+  mStatus.Lines.Add('-----------------------------------------------------------');
+  mStatus.Lines.Add('QSOs:  '+IntToStr(qsos)+'    (dupes: '+IntToStr(dupes)+')');
+  mStatus.Lines.Add('Points: '+IntToStr(pts));
+  for i := 1 to 3 do
+    if ((i=1) and (m1>0)) or ((i=2) and (m2>0)) or ((i=3) and (m3>0)) then
+      case i of
+        1 : mStatus.Lines.Add('Mult 1 ('+ContestRules.MultName(1)+'): '+IntToStr(m1));
+        2 : mStatus.Lines.Add('Mult 2 ('+ContestRules.MultName(2)+'): '+IntToStr(m2));
+        3 : mStatus.Lines.Add('Mult 3 ('+ContestRules.MultName(3)+'): '+IntToStr(m3));
+      end;
+  mStatus.Lines.Add('-----------------------------------------------------------');
+  mStatus.Lines.Add('SCORE: '+IntToStr(score));
+
+  //Keep the multiplier grid in step with the score rather than making it poll.
+  if frmMultipliers <> nil then frmMultipliers.RefreshIfShowing
+end;
+
+{ ---------------------------------------------------------------------------
+  ESM - Enter Sends Message.
+
+  Enter stops meaning "save" and starts meaning "send whatever comes next in
+  this QSO, and save when there is nothing left to send". Off by default; the
+  checkbox is built at runtime so no .lfm surgery is needed.
+
+  Role -> F-key mapping is read from the ini and defaults to the convention
+  cqrlog's contest window already used before ESM existed (F1 CQ, F2 exchange,
+  F3 QSO-B4, F4 TU), so turning ESM on does not move anybody's macros. The
+  keys are looked up per role, not hardcoded, so a N1MM layout is an ini edit.
+
+  Remember cqrlog keeps TWO macro banks: in run mode GetCWMessage silently
+  reads F11..F20 for F1..F10, so "F2" below means "the exchange key of the
+  bank that is currently active" - run and S&P each get their own text.
+  --------------------------------------------------------------------------- }
+
+const
+  esmNothing = 0;
+  esmCQ      = 1;   //run: CQ  /  S&P: send my call
+  esmExch    = 2;   //send the exchange
+  esmDupe    = 3;   //tell him he is a dupe
+  esmAgn     = 4;   //ask for a repeat
+  esmLog     = 5;   //log; in run btSaveClick keys TU on the way out
+
+function TfrmContest.ESMOn : Boolean;
+begin
+  Result := (chkESM <> nil) and chkESM.Checked
+end;
+
+function TfrmContest.ESMKeyFor(const role : String; def : Word) : Word;
+var
+  s : String;
+  n : Integer;
+begin
+  Result := def;
+  s := UpperCase(Trim(cqrini.ReadString('frmContest','ESM'+role,'')));
+  if (Length(s) < 2) or (s[1] <> 'F') then exit;
+  if not TryStrToInt(Copy(s,2,Length(s)-1),n) then exit;
+  if (n < 1) or (n > 10) then exit;          //only F1..F10 are memory keys
+  Result := VK_F1 + Word(n-1)
+end;
+
+function TfrmContest.ESMCallLoggable : Boolean;
+var
+  i        : Integer;
+  s        : String;
+  hasDigit,
+  hasAlpha : Boolean;
+begin
+  //frmNewQSO.btnSave silently refuses a call that is not callsign-shaped, so
+  //without this gate Enter would key TU while the QSO went nowhere.
+  Result := False;
+  s := UpperCase(Trim(edtCall.Text));
+  if Length(s) < 3 then exit;
+  hasDigit := False;
+  hasAlpha := False;
+  for i := 1 to Length(s) do
+    case s[i] of
+      '0'..'9' : hasDigit := True;
+      'A'..'Z' : hasAlpha := True;
+    end;
+  Result := hasDigit and hasAlpha
+end;
+
+function TfrmContest.ESMExchangeValid : Boolean;
+begin
+  //Until the contest rule engine lands there is no per-contest exchange
+  //schema, so this is deliberately the loosest rule that still catches an
+  //empty form: a report, plus a serial unless this contest has none.
+  Result := False;
+  if Trim(edtRSTr.Text) = '' then exit;
+  if (not chkNoNr.Checked) and (Trim(edtSRX.Text) = '') then exit;
+  Result := True
+end;
+
+function TfrmContest.ESMNextAction : Integer;
+begin
+  if Trim(edtCall.Text) = '' then
+  begin
+    //Nothing on frequency: in run that is a CQ. In S&P it is nothing at all -
+    //throwing your call at an empty box is how you answer the wrong station.
+    if chkSP.Checked then Result := esmNothing else Result := esmCQ;
+    exit
+  end;
+
+  if not chkSP.Checked then
+  begin
+    //RUN. Beat 0 answers him, beat 1 closes the QSO.
+    //chkMarkDupe checked means "work dupes and flag them in the log", which is
+    //N1MM's "work dupes when running" - so only refuse when it is unchecked.
+    if (ESMBeat = 0) and ESMIsDupe and (not chkMarkDupe.Checked) then
+    begin
+      Result := esmDupe;
+      exit
+    end;
+    if ESMBeat = 0 then
+    begin
+      Result := esmExch;
+      exit
+    end;
+    if ESMExchangeValid then
+      Result := esmLog             //btSaveClick keys TU on its way out
+    else
+      Result := esmAgn;            //he gave us nothing usable, ask again
+    exit
+  end;
+
+  //S&P is a strict THREE-BEAT: my call, my exchange, log.
+  //Beat 1 fires whether or not his serial is copied yet, so working him in
+  //either order behaves the same. Beat 2 is SILENT - he is the one saying TU,
+  //and the field wipe is the only "it logged" signal.
+  case ESMBeat of
+    0 : Result := esmCQ;           //the S&P bank's F1 holds my call
+    1 : Result := esmExch;
+  else
+    if ESMExchangeValid then Result := esmLog else Result := esmAgn
+  end
+end;
+
+procedure TfrmContest.ESMUpdateHint;
+var
+  s : String;
+begin
+  if lblESMNext = nil then exit;
+  if not ESMOn then
+  begin
+    lblESMNext.Caption := '';
+    exit
+  end;
+  case ESMNextAction of
+    esmCQ    : if chkSP.Checked then s := 'my call' else s := 'CQ';
+    esmExch  : s := 'exchange';
+    esmDupe  : s := 'QSO B4';
+    esmAgn   : s := 'AGN?';
+    esmLog   : if chkSP.Checked then s := 'log' else s := 'TU + log';
+    else       s := '-';
+  end;
+  lblESMNext.Caption := 'Enter: '+s
+end;
+
+procedure TfrmContest.ESMFocusExchange;
+begin
+  //After sending the exchange the operator is copying his, so put the caret
+  //where the next keystroke belongs instead of leaving it on the callsign.
+  if edtSRX.CanFocus and edtSRX.TabStop then
+    edtSRX.SetFocus
+  else if edtSRXStr.CanFocus and edtSRXStr.TabStop then
+    edtSRXStr.SetFocus
+  else if edtRSTr.CanFocus and edtRSTr.TabStop then
+    edtRSTr.SetFocus
+end;
+
+procedure TfrmContest.ESMDoEnter;
+begin
+  case ESMNextAction of
+    esmNothing : ;                //deliberately silent
+
+    esmCQ      : begin
+                   SendFmemory(ESMKeyFor('CQ',VK_F1));
+                   //In run this is a CQ and the QSO has not started, so the
+                   //beat stays at 0. In S&P it IS beat 0 - we just answered.
+                   if chkSP.Checked then
+                   begin
+                     ESMBeat := 1;
+                     ESMFocusExchange
+                   end
+                 end;
+
+    esmExch    : begin
+                   SendFmemory(ESMKeyFor('Exch',VK_F2));
+                   if chkSP.Checked then ESMBeat := 2 else ESMBeat := 1;
+                   //FmemorySent stops edtRSTrEnter keying the exchange a
+                   //second time when the caret lands in the received report.
+                   FmemorySent := True;
+                   ESMFocusExchange
+                 end;
+
+    esmDupe    : SendFmemory(ESMKeyFor('Dupe',VK_F3));
+
+    esmAgn     : SendFmemory(ESMKeyFor('Agn',VK_F7));
+
+    esmLog     : begin
+                   //The log action is never bundled with a send. btSaveClick
+                   //wipes the fields, so a "?" answered right after a bundled
+                   //send would go out with the next, zeroed, serial.
+                   if not ESMCallLoggable then
+                   begin
+                     if lblESMNext <> nil then
+                       lblESMNext.Caption := edtCall.Text+' is not loggable';
+                     exit
+                   end;
+                   if not ESMExchangeValid then exit;
+                   //Run mode's TU comes from btSaveClick itself; S&P logs
+                   //silently, because there he is the one sending TU.
+                   btSave.Click
+                 end;
+  end;
+  ESMUpdateHint
+end;
+
+procedure TfrmContest.ESMCheckChange(Sender: TObject);
+begin
+  cqrini.WriteBool('frmContest','ESM',ESMOn);
+  ESMBeat := 0;
+  ESMUpdateHint
+end;
+
+procedure TfrmContest.ESMCreateControls;
+var
+  mi : TMenuItem;
+begin
+  if chkESM <> nil then exit;                //only once
+
+  //Anchored rather than positioned: every control on this row rides an anchor
+  //chain, so their .Top/.Left in the .lfm are design-time snapshots. chkLoc is
+  //the last box on the row and nothing anchors to it, so we extend the chain.
+  chkESM := TCheckBox.Create(Self);
+  chkESM.Parent   := chkLoc.Parent;
+  chkESM.AnchorSideLeft.Control := chkLoc;
+  chkESM.AnchorSideLeft.Side    := asrBottom;      //asrBottom on Left = right edge
+  chkESM.AnchorSideTop.Control  := chkLoc;
+  chkESM.AnchorSideTop.Side     := asrCenter;
+  chkESM.Anchors  := [akLeft,akTop];
+  chkESM.BorderSpacing.Left := 12;
+  chkESM.Caption  := 'ESM';
+  chkESM.Hint     := 'Enter Sends Message.'+LineEnding+
+                     'Enter keys the next message of the QSO instead of saving, '+
+                     'and saves only when there is nothing left to send.'+LineEnding+
+                     'Run: Enter=exchange, Enter=TU+log.'+LineEnding+
+                     'S&P: Enter=my call, Enter=exchange, Enter=log (silent).'+LineEnding+
+                     'While ESM is on, the automatic F2-on-entering-RSTr and '+
+                     'F3-on-dupe sends are suppressed so nothing is keyed twice.';
+  chkESM.ParentShowHint := False;
+  chkESM.ShowHint := True;
+  chkESM.TabStop  := False;
+  chkESM.Checked  := cqrini.ReadBool('frmContest','ESM',False);
+  chkESM.OnChange := @ESMCheckChange;
+
+  lblESMNext := TLabel.Create(Self);
+  lblESMNext.Parent := chkESM.Parent;
+  lblESMNext.AnchorSideLeft.Control := chkESM;
+  lblESMNext.AnchorSideLeft.Side    := asrBottom;
+  lblESMNext.AnchorSideTop.Control  := chkESM;
+  lblESMNext.AnchorSideTop.Side     := asrCenter;
+  lblESMNext.Anchors := [akLeft,akTop];
+  lblESMNext.BorderSpacing.Left := 8;
+  lblESMNext.Font.Style := [fsBold];
+  lblESMNext.Caption := '';
+
+  //Call-history readout, on the row below. N1MM puts this on the bearing
+  //line; here it sits under the ESM hint where the eye already is.
+  lblCallHist := TLabel.Create(Self);
+  lblCallHist.Parent := chkESM.Parent;
+  lblCallHist.AnchorSideLeft.Control := chkESM;
+  lblCallHist.AnchorSideLeft.Side    := asrLeft;
+  lblCallHist.AnchorSideTop.Control  := chkESM;
+  lblCallHist.AnchorSideTop.Side     := asrBottom;
+  lblCallHist.Anchors := [akLeft,akTop];
+  lblCallHist.BorderSpacing.Top := 2;
+  lblCallHist.Font.Color := clNavy;
+  lblCallHist.Caption := '';
+
+  //Rescore, N1MM's Tools > Rescore. Saving a QSO scores that QSO, but editing
+  //or deleting an earlier one changes every dupe and multiplier decision after
+  //it, and only a full re-scan can put that right.
+  if popRescore = nil then
+  begin
+    popRescore := TPopupMenu.Create(Self);
+    mi := TMenuItem.Create(popRescore);
+    mi.Caption := 'Recalculate score for this contest';
+    mi.OnClick := @RescoreClick;
+    popRescore.Items.Add(mi);
+
+    //The N1MM broadcast toggle lives here rather than on the entry rows:
+    //it is a station-wide setting, not a per-QSO one, and the entry rows are
+    //already full to the right edge of a 770px form.
+    miN1MM := TMenuItem.Create(popRescore);
+    miN1MM.Caption := 'Broadcast to N1MM apps (UDP 12060)';
+    miN1MM.AutoCheck := True;
+    miN1MM.Checked := cqrini.ReadBool('N1MM','Enabled',False);
+    miN1MM.OnClick := @N1MMCheckChange;
+    popRescore.Items.Add(miN1MM);
+
+    mi := TMenuItem.Create(popRescore);
+    mi.Caption := '-';
+    popRescore.Items.Add(mi);
+
+    mi := TMenuItem.Create(popRescore);
+    mi.Caption := 'Save contest layout';
+    mi.OnClick := @SaveLayoutClick;
+    popRescore.Items.Add(mi);
+
+    mi := TMenuItem.Create(popRescore);
+    mi.Caption := 'Restore contest layout';
+    mi.OnClick := @LoadLayoutClick;
+    popRescore.Items.Add(mi);
+
+    miOnTop := TMenuItem.Create(popRescore);
+    miOnTop.Caption := 'Keep this window on top';
+    miOnTop.AutoCheck := True;
+    miOnTop.Checked := cqrini.ReadBool('frmContest','OnTop',False);
+    miOnTop.OnClick := @OnTopClick;
+    popRescore.Items.Add(miOnTop);
+    if miOnTop.Checked then FormStyle := fsSystemStayOnTop;
+    mStatus.PopupMenu := popRescore
+  end;
+
+  ESMBeat := 0;
+  ESMUpdateHint
+end;
+
+{ ---------------------------------------------------------------------------
+  Contest layout.
+
+  A snapshot of where the contest windows are and which are open, saved and
+  restored as one unit, so setting up for a contest is one action instead of
+  arranging seven windows.
+
+  NOTE what this deliberately does NOT do: lock the windows in place. Not1MM
+  can lock its layout because its panels are dock widgets inside one window;
+  cqrlog's are real top-level windows and the window manager owns moving them.
+  Promising a lock we cannot enforce would be worse than not offering one.
+  Always-on-top is the part that is actually achievable, and it is the part
+  that matters mid-contest.
+  --------------------------------------------------------------------------- }
+
+procedure TfrmContest.LayoutForms(l : TList);
+begin
+  //The windows a contest operator actually arranges. Order is irrelevant;
+  //each is stored under its own name.
+  l.Add(frmContest);
+  l.Add(frmSCP);
+  l.Add(frmMultipliers);
+  l.Add(frmBandMap);
+  l.Add(frmCWReader);
+  l.Add(frmDXCluster);
+  l.Add(frmCWType)
+end;
+
+procedure TfrmContest.SaveLayoutClick(Sender: TObject);
+var
+  l : TList;
+  i : Integer;
+  f : TForm;
+  n : String;
+begin
+  l := TList.Create;
+  try
+    LayoutForms(l);
+    for i := 0 to l.Count-1 do
+    begin
+      f := TForm(l[i]);
+      if f = nil then Continue;
+      n := f.Name;
+      cqrini.WriteBool   ('ContestLayout',n+'_Vis',f.Showing);
+      //Only a window that is actually up has meaningful bounds - a hidden
+      //form would save whatever it had when it was last closed.
+      if f.Showing then
+      begin
+        cqrini.WriteInteger('ContestLayout',n+'_L',f.Left);
+        cqrini.WriteInteger('ContestLayout',n+'_T',f.Top);
+        cqrini.WriteInteger('ContestLayout',n+'_W',f.Width);
+        cqrini.WriteInteger('ContestLayout',n+'_H',f.Height)
+      end
+    end
+  finally
+    l.Free
+  end;
+  Application.MessageBox('Contest layout saved.','Layout',mb_OK+mb_IconInformation)
+end;
+
+procedure TfrmContest.LoadLayoutClick(Sender: TObject);
+var
+  l : TList;
+  i : Integer;
+  f : TForm;
+  n : String;
+begin
+  l := TList.Create;
+  try
+    LayoutForms(l);
+    for i := 0 to l.Count-1 do
+    begin
+      f := TForm(l[i]);
+      if f = nil then Continue;
+      n := f.Name;
+      if cqrini.ReadBool('ContestLayout',n+'_Vis',False) then
+      begin
+        f.Show;
+        //Bounds after Show: showing a form can re-apply its own saved
+        //position, which would undo this if done the other way round.
+        f.SetBounds(cqrini.ReadInteger('ContestLayout',n+'_L',f.Left),
+                    cqrini.ReadInteger('ContestLayout',n+'_T',f.Top),
+                    cqrini.ReadInteger('ContestLayout',n+'_W',f.Width),
+                    cqrini.ReadInteger('ContestLayout',n+'_H',f.Height))
+      end
+      else
+        //Never hide the contest window itself - the operator is looking at
+        //the menu that lives on it.
+        if f <> Self then f.Hide
+    end
+  finally
+    l.Free
+  end;
+  frmContest.BringToFront
+end;
+
+procedure TfrmContest.OnTopClick(Sender: TObject);
+begin
+  cqrini.WriteBool('frmContest','OnTop',miOnTop.Checked);
+  if miOnTop.Checked then
+    FormStyle := fsSystemStayOnTop
+  else
+    FormStyle := fsNormal
+end;
+
+procedure TfrmContest.N1MMCheckChange(Sender: TObject);
+begin
+  cqrini.WriteBool('N1MM','Enabled',miN1MM.Checked);
+  N1MMUdp.Configure;
+  if miN1MM.Checked then
+    N1MMUdp.SendAppInfo(dmData.DBName,cmbContestName.Text,dmUtils.GetHostName,
+                        UpperCase(cqrini.ReadString('Station','Call','')),1)
+end;
+
+procedure TfrmContest.RescoreClick(Sender: TObject);
+var
+  qsos,dupes,pts,m1,m2,m3,score : Integer;
+begin
+  if not RulesLoaded then
+  begin
+    Application.MessageBox('This contest has no rule definition file, so there '+
+                           'is nothing to score.','Rescore',mb_OK+mb_IconInformation);
+    exit
+  end;
+  Screen.Cursor := crHourGlass;
+  try
+    score := ScoreContest(cmbContestName.Text,True,-1,qsos,dupes,pts,m1,m2,m3)
+  finally
+    Screen.Cursor := crDefault
+  end;
+  RulesStatus;
+  Application.MessageBox(PChar('Rescored '+IntToStr(qsos)+' QSOs.'+LineEnding+
+                               'Score: '+IntToStr(score)),
+                         'Rescore',mb_OK+mb_IconInformation)
+end;
+
 procedure TfrmContest.SendFmemory(key:word);
 Begin
   case frmNewQSO.cmbMode.Text of
@@ -1778,6 +2745,7 @@ end;
 function TfrmContest.CheckDupe(call:string):boolean;
 var
    dupe:integer;
+   isDupe:Boolean;
 Begin
    Result:=false;
    if not (rbIgnoreDupes.Checked) then
@@ -1786,8 +2754,22 @@ Begin
      dupe := frmWorkedGrids.WkdCall(edtCall.Text, dmUtils.GetBandFromFreq(frmNewQSO.cmbFreq.Text) ,frmNewQSO.cmbMode.Text);
      // 1= wkd this band and mode
      // 2= wkd this band but NOT this mode
-     if  ( (rbNoMode4Dupe.Checked) and (dupe = 1) )
-      or ( (not rbNoMode4Dupe.Checked) and ((dupe = 1) or (dupe=2)) )then
+     // 3= wkd on some other band or mode
+     if RulesLoaded then
+       //The contest's own rule wins over the radio buttons - "work once per
+       //contest" contests like Sweepstakes and NAQP cannot be expressed by
+       //them at all, which is why they were unusable here before.
+       case ContestRules.DupeType of
+         dpOncePerContest : isDupe := dupe in [1,2,3];
+         dpPerBandMode    : isDupe := dupe = 1;
+         dpNone           : isDupe := False;
+       else                  isDupe := dupe in [1,2]
+       end
+     else
+       isDupe := ( (rbNoMode4Dupe.Checked) and (dupe = 1) )
+              or ( (not rbNoMode4Dupe.Checked) and ((dupe = 1) or (dupe=2)) );
+
+     if isDupe then
         Begin
           edtCall.Font.Color:=clRed;
           edtCall.Font.Style:= [fsBold];
@@ -2443,5 +3425,14 @@ Begin
     end;   // AllQsos>0
 
 end;
+
+finalization
+  //The form is owned by Application and outlives everything, but the rules
+  //object is ours, so hand it back rather than leaking it on exit.
+  if frmContest <> nil then
+  begin
+    FreeAndNil(frmContest.ContestRules);
+    FreeAndNil(frmContest.CallHist)
+  end;
 
 end.

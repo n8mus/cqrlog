@@ -5271,6 +5271,12 @@ object frmNewQSO: TfrmNewQSO
       object MenuItem73: TMenuItem
         Action = acCWType
       end
+      object mnuCWReaderWin: TMenuItem
+        Action = acCWReader
+      end
+      object mnuMultipliersWin: TMenuItem
+        Action = acMultipliers
+      end
       object MenuItem72: TMenuItem
         Action = acCWFKey
         Caption = 'Memory keys'
@@ -5645,6 +5651,10 @@ object frmNewQSO: TfrmNewQSO
         Action = acCWType
         OnClick = acCWTypeExecute
       end
+      object mnuCWReaderCW: TMenuItem
+        Action = acCWReader
+        OnClick = acCWReaderExecute
+      end
       object MenuItem64: TMenuItem
         Caption = '-'
       end
@@ -5794,6 +5804,17 @@ object frmNewQSO: TfrmNewQSO
       ShortCut = 123
       OnExecute = acCWTypeExecute
     end
+    object acCWReader: TAction
+      Category = 'Window'
+      Caption = 'CW reader'
+      OnExecute = acCWReaderExecute
+    end
+    object acMultipliers: TAction
+      Category = 'Window'
+      Caption = 'Multipliers'
+      ShortCut = 24661
+      OnExecute = acMultipliersExecute
+    end
     object acWACCfm: TAction
       Category = 'Statistics'
       Caption = 'WAC'
@@ -5856,6 +5877,7 @@ object frmNewQSO: TfrmNewQSO
     end
     object acSCP: TAction
       Category = 'Window'
+      ShortCut = 24651
       Caption = 'Super Check Partial'
       OnExecute = acSCPExecute
     end
@@ -5968,6 +5990,7 @@ object frmNewQSO: TfrmNewQSO
     object acContest: TAction
       Category = 'Window'
       Caption = 'Contest'
+      ShortCut = 24643
       OnExecute = acContestExecute
     end
     object acRemoteModeADIF: TAction

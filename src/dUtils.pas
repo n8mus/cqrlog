@@ -212,6 +212,11 @@ type
         function  GetCallBookData(call : String; var nick,qth,address,zip,grid,state,county,qsl,iota,waz,itu,dok,ErrMsg : String) : Boolean;
         function  GetCallForAttach(call : String) : String;
         function  GetCWMessage(Key,call,rst_s,stx,stx_str,srx,srx_str,HisName,HelloMsg, text: String) : String;
+        //This machine's name, for the N1MM datagrams' StationName field.
+        function  GetHostName : String;
+        //A 32 hex character id - the key a consumer uses to match a later
+        //edit or delete to the contact it first saw.
+        function  NewGuidHex : String;
         function  GetDataFromHttp(Url : String; var data : String) : Boolean;
         function  GetDateTime(delta : Currency) : TDateTime;
         function  GetDescKeyFromCode(key : Word) : String;
@@ -361,7 +366,7 @@ implementation
   {$R *.lfm}
 
 { TdmUtils }
-uses dData, dDXCC, fEnterFreq, fTRXControl, uMyini, fNewQSO, uVersion, fContest;
+uses dData, dDXCC, fEnterFreq, fTRXControl, uMyini, fNewQSO, uVersion, fContest, uContestRules;
 
 procedure TdmUtils.FillNewBandModeLimits;  //write band's mode base values to new mode frequency table using old values
   var f:integer;
@@ -3105,6 +3110,32 @@ begin
   Result := LowerCase(GetBandFromFreq(freq));
 end;
 
+function TdmUtils.GetHostName : String;
+begin
+  Result := Trim(GetEnvironmentVariable('HOSTNAME'));
+  if Result = '' then
+    if FileExists('/etc/hostname') then
+      with TStringList.Create do
+      try
+        LoadFromFile('/etc/hostname');
+        if Count > 0 then Result := Trim(Strings[0])
+      finally
+        Free
+      end;
+  if Result = '' then Result := 'CQRLOG'
+end;
+
+function TdmUtils.NewGuidHex : String;
+var
+  g : TGUID;
+begin
+  CreateGUID(g);
+  Result := GUIDToString(g);
+  Result := StringReplace(Result,'-','',[rfReplaceAll]);
+  Result := StringReplace(Result,'{','',[rfReplaceAll]);
+  Result := LowerCase(StringReplace(Result,'}','',[rfReplaceAll]))
+end;
+
 function TdmUtils.GetCWMessage(Key,call,rst_s,stx,stx_str,srx,srx_str,HisName,HelloMsg, text : String) : String;
 {
  %mc - my callsign
@@ -3136,6 +3167,7 @@ var
   myloc  : String = '';
   myname : String = '';
   myqth  : String = '';
+  runMode: Boolean = False;
   rst_sh : String = '';
   stx_sh : String = '';
   srx_sh : String = '';
@@ -3148,13 +3180,21 @@ begin
   myqth := cqrini.ReadString('Station', 'QTH', '');
   if key <> '' then
    Begin
-    if (frmContest.Showing) and ( not (cqrini.ReadBool('CW','S&P',True))) then //if contest and run mode keys are F11-F20
-     Begin
-      if key='F10' then key:='F20'
-       else
-         key:= key[1]+'1'+key[2];
-     end;
-    Result := LowerCase(cqrini.ReadString('CW', key, ''))
+    runMode := frmContest.Showing and (not cqrini.ReadBool('CW','S&P',True));
+    //A contest definition may carry its own F-key text. Checked FIRST and
+    //non-destructively: the global [CW] macros are never touched, so leaving
+    //the contest restores the everyday set with nothing to undo.
+    Result := LowerCase(MultTracker.MacroFor(key,runMode));
+    if Result = '' then
+    begin
+      if runMode then //if contest and run mode keys are F11-F20
+       Begin
+        if key='F10' then key:='F20'
+         else
+           key:= key[1]+'1'+key[2];
+       end;
+      Result := LowerCase(cqrini.ReadString('CW', key, ''))
+    end
    end
   else
     Result := text;

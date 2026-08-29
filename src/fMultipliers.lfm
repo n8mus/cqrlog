@@ -1,0 +1,62 @@
+object frmMultipliers: TfrmMultipliers
+  Left = 420
+  Height = 420
+  Top = 260
+  Width = 520
+  Caption = 'Multipliers'
+  ClientHeight = 420
+  ClientWidth = 520
+  OnClose = FormClose
+  OnShow = FormShow
+  LCLVersion = '3.8.0.0'
+  object pnlTop: TPanel
+    Left = 0
+    Height = 34
+    Top = 0
+    Width = 520
+    Align = alTop
+    BevelOuter = bvNone
+    ClientHeight = 34
+    ClientWidth = 520
+    TabOrder = 0
+    object lblMult: TLabel
+      Left = 8
+      Height = 17
+      Top = 8
+      Width = 66
+      Caption = 'Multiplier:'
+      ParentColor = False
+    end
+    object cmbMult: TComboBox
+      Left = 84
+      Height = 29
+      Top = 3
+      Width = 220
+      ItemHeight = 0
+      Style = csDropDownList
+      TabOrder = 0
+      OnChange = cmbMultChange
+    end
+  end
+  object sgMults: TStringGrid
+    Left = 0
+    Height = 363
+    Top = 34
+    Width = 520
+    Align = alClient
+    ColCount = 1
+    FixedCols = 1
+    Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRangeSelect, goSmoothScroll]
+    RowCount = 1
+    TabOrder = 1
+    OnPrepareCanvas = sgMultsPrepareCanvas
+  end
+  object sbMult: TStatusBar
+    Left = 0
+    Height = 23
+    Top = 397
+    Width = 520
+    Panels = <>
+    SimplePanel = True
+  end
+end
