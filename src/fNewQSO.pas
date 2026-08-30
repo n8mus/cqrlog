@@ -2384,6 +2384,15 @@ begin
               //set the final Cqrlmode
               cmbMode.Text:=dmUtils.ModeToCqr(mode,submode,dmData.DebugLevel>=1 );
 
+              //Stamp the contest being operated onto QSOs arriving from a
+              //remote logger. WSJT-X and friends either send no CONTEST_ID at
+              //all or send their own idea of one, so without this a digital
+              //contest logs with an empty contestname and the contest window -
+              //which filters on it - stays empty all weekend.
+              if (frmContest <> nil) and frmContest.Showing and
+                 (Trim(frmContest.cmbContestName.Text) <> '') then
+                edtContestName.Text := Trim(frmContest.cmbContestName.Text);
+
               SaveRemote;
 
               //these do not reset in qso save, so they must be cleared here in case there was

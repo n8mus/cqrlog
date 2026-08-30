@@ -28,5 +28,6 @@ PointsPerDistanceKm=3000
 Multiplier1Name=GridField
 IsMult1Per=1
 
-; Nothing sent by hand - WSJT-X handles the exchange.
-SentExchange=
+; The exchange IS your 4-character grid, which WSJT-X sends. Set here so
+; the box does not keep whatever the previous contest left in it.
+SentExchange=EN83
