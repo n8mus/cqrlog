@@ -227,6 +227,7 @@ type
     LockScroll   : Boolean;
 
     procedure SendCommand(cmd : String);
+    procedure SendStartCommands;          //fire the StartCmd list once per login
     function  TelnetConnected : Boolean;  //spot posting needs a live telnet
     procedure StopAllConnections;
     procedure ReloadSettings;
@@ -966,8 +967,6 @@ var
   itmp, itmp2, QSLState, SkimCTYid : Integer;
   buffer : String;
   f, etmp : Double;
-  cmds    :TStringlist;
-  K       :integer;
 begin
   if lTelnet.GetMessage(buffer) = 0 then
     exit;
@@ -1002,29 +1001,21 @@ begin
         Begin
           Chline := '';
           if dmData.DebugLevel>=1 then Writeln('Chat : line is cluster prompt!');
-          //send start command at first prompt
-          if not SentStartCmd and (cqrini.ReadString('DXCluster','StartCmd','') <> '') then
-            begin
-               cmds := Tstringlist.create;
-                try
-                 Assert(Assigned(cmds)) ;
-                 cmds.Clear;
-                 cmds.StrictDelimiter := true;
-                 cmds.Delimiter := ';';
-                 cmds.DelimitedText := cqrini.ReadString('DXCluster','StartCmd','') ;
-                 for K:=0 to cmds.Count-1 do
-                  Begin
-                   SendCommand(trim(cmds[K]));
-                   if dmData.DebugLevel>=1 then  writeln('Sent DXCluster connect start command:',trim(cmds[K]));
-                   sleep(100);
-                  end;
-                finally
-                  FreeAndNil(cmds);
-                end;
-               SentStartCmd := true;
-            end;
+          //send start command at the classic "<mycall> de <node> ... >" prompt
+          SendStartCommands;
         end;
       end;
+
+    //Nodes with a custom prompt (e.g. WA9PIE-2's bare "WA9PIE-2>") never emit
+    //the "<mycall> de <node>" form the block above keys on, so the StartCmd -
+    //and with it SET/NOSKIMMER - was never sent and RBN spots flooded in. Any
+    //trimmed line ending in '>' is a DXSpider command prompt and only appears
+    //after login (the "login:"/"password:" prompts do not), so fire the
+    //StartCmd on the first one. SentStartCmd makes every later prompt a no-op,
+    //so this cannot re-trigger on sh/dx output lines that also end in "<CALL>".
+    if (not SentStartCmd) and (tmp <> '') and (tmp[Length(tmp)] = '>') then
+      SendStartCommands;
+
     if  (mnuSkimAllowFreq.Checked) then
       Begin
       if Pos('TO ALL DE SKIMMER',UpperCase(tmp)) > 0 then
@@ -1141,6 +1132,36 @@ begin
     lTelnet.SendMessage(cmd + #13#10);
     TelSpots.AddLine(cmd,clBlack,clWhite,0)
   end
+end;
+
+//Send the user's per-connection StartCmd list (e.g. SET/NOSKIMMER) exactly
+//once after login. Called from lReceive the moment the first command prompt
+//is seen. Prompt detection lives at the call sites - this only guarantees the
+//list goes out once, guarded by SentStartCmd, so multiple triggers are safe.
+procedure TfrmDXCluster.SendStartCommands;
+var
+  cmds : TStringList;
+  K    : Integer;
+begin
+  if SentStartCmd then
+    Exit;
+  SentStartCmd := True;   //set first: a failed/partial send must not re-loop
+  if cqrini.ReadString('DXCluster','StartCmd','') = '' then
+    Exit;
+  cmds := TStringList.Create;
+  try
+    cmds.StrictDelimiter := True;
+    cmds.Delimiter := ';';
+    cmds.DelimitedText := cqrini.ReadString('DXCluster','StartCmd','');
+    for K := 0 to cmds.Count-1 do
+    begin
+      SendCommand(trim(cmds[K]));
+      if dmData.DebugLevel>=1 then writeln('Sent DXCluster connect start command:',trim(cmds[K]));
+      sleep(100);
+    end;
+  finally
+    FreeAndNil(cmds);
+  end;
 end;
 
 procedure TfrmDXCluster.tmrSpotsTimer(Sender: TObject);
