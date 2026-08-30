@@ -151,7 +151,7 @@ begin
     dmData.trQ.StartTransaction;
     try
       dmData.Q.SQL.Text :=
-        'select m.callsign,m.band,m.mode,m.cont,m.waz,m.itu,m.loc,m.state,'+
+        'select m.callsign,m.band,m.mode,m.cont,m.waz,m.itu,m.loc,m.my_loc,m.state,'+
         'm.srx,m.srx_string,d.dxcc_ref '+
         'from cqrlog_main m left join dxcc_id d on d.adif=m.adif '+
         'where m.contestname='+QuotedStr(frmContest.cmbContestName.Text)+' '+
@@ -168,6 +168,7 @@ begin
         ctx.ZoneCQ     := Trim(dmData.Q.FieldByName('waz').AsString);
         ctx.ZoneITU    := Trim(dmData.Q.FieldByName('itu').AsString);
         ctx.Grid       := Trim(dmData.Q.FieldByName('loc').AsString);
+        ctx.MyGrid     := Trim(dmData.Q.FieldByName('my_loc').AsString);
         ctx.State      := Trim(dmData.Q.FieldByName('state').AsString);
         ctx.SerialRcvd := Trim(dmData.Q.FieldByName('srx').AsString);
         ctx.ExchRcvd   := Trim(dmData.Q.FieldByName('srx_string').AsString);

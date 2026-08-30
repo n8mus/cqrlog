@@ -1,0 +1,32 @@
+; World Wide Digi DX Contest (WW Digi).
+; Rules read from ww-digi.com/rules/ on 2026-08-30.
+;
+; FT4/FT8 only, on 160/80/40/20/15/10. The exchange is a 4-character grid
+; square, which WSJT-X already sends and receives - so in practice the QSOs
+; arrive through cqrlog's WSJT-X bridge rather than being typed.
+;
+; The grid you receive must end up in the QSO's locator field for scoring to
+; work; that is where both the distance and the multiplier come from.
+[Contest]
+Name=WW-DIGI
+DisplayName=World Wide Digi DX
+CabrilloName=WW-DIGI
+Mode=RTTY
+
+; Work each station once per band; different modes on a band are separate.
+DupeType=3
+
+; Scoring: one point, plus one more for every 3000 km between grid centres.
+; e.g. 5541 km = 2 points. The distance is computed from your own locator to
+; the one you received, so BOTH must be present or the QSO scores its base
+; point only.
+PointsPerContact=1
+PointsPerDistanceKm=3000
+
+; Multiplier is each different 2-character grid FIELD, per band. Note FIELD,
+; not square - EN82 and EN63 are both "EN" and count once on a given band.
+Multiplier1Name=GridField
+IsMult1Per=1
+
+; Nothing sent by hand - WSJT-X handles the exchange.
+SentExchange=

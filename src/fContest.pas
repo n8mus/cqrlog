@@ -1916,6 +1916,7 @@ begin
   Result.ZoneCQ       := Trim(frmNewQSO.lblWAZ.Caption);
   Result.ZoneITU      := Trim(frmNewQSO.lblITU.Caption);
   Result.Grid         := Trim(frmNewQSO.edtGrid.Text);
+  Result.MyGrid       := Trim(cqrini.ReadString('Station','LOC',''));
   Result.State        := Trim(frmNewQSO.edtState.Text);
   Result.SerialRcvd   := Trim(edtSRX.Text);
   Result.ExchRcvd     := Trim(edtSRXStr.Text);
@@ -2117,7 +2118,7 @@ begin
       //country-file scanning per row.
       dmData.Q.SQL.Text :=
         'select m.id_cqrlog_main,m.callsign,m.band,m.mode,m.cont,m.waz,m.itu,'+
-        'm.loc,m.state,m.srx,m.srx_string,m.points,m.ismult1,m.ismult2,'+
+        'm.loc,m.my_loc,m.state,m.srx,m.srx_string,m.points,m.ismult1,m.ismult2,'+
         'm.ismult3,d.dxcc_ref '+
         'from cqrlog_main m left join dxcc_id d on d.adif=m.adif '+
         'where m.contestname='+QuotedStr(contestName)+' '+
@@ -2135,6 +2136,10 @@ begin
         ctx.ZoneCQ       := Trim(dmData.Q.FieldByName('waz').AsString);
         ctx.ZoneITU      := Trim(dmData.Q.FieldByName('itu').AsString);
         ctx.Grid         := Trim(dmData.Q.FieldByName('loc').AsString);
+        //From the log, not the config: a distance-scored contest worked
+        //portable must score from where you actually were.
+        ctx.MyGrid       := Trim(dmData.Q.FieldByName('my_loc').AsString);
+        if ctx.MyGrid = '' then ctx.MyGrid := cqrini.ReadString('Station','LOC','');
         ctx.State        := Trim(dmData.Q.FieldByName('state').AsString);
         ctx.SerialRcvd   := Trim(dmData.Q.FieldByName('srx').AsString);
         ctx.ExchRcvd     := Trim(dmData.Q.FieldByName('srx_string').AsString);

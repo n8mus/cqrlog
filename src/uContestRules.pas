@@ -29,7 +29,7 @@ unit uContestRules;
 interface
 
 uses
-  Classes, SysUtils, IniFiles, StrUtils;
+  Classes, SysUtils, IniFiles, StrUtils, Math;
 
 type
   //What a multiplier IS. Names match the UDC Multiplier<N>Name values.
@@ -40,6 +40,7 @@ type
                mtZoneITU,
                mtGrid,         //6 char locator
                mtGrid4,        //4 char field+square, the VHF rule
+               mtGridField,    //2 char field only - WW Digi counts these
                mtContinent,
                mtCallsign,     //unique calls worked, e.g. ICWC MST
                mtState,        //state/province from the log field
@@ -67,6 +68,7 @@ type
     ZoneCQ      : String;
     ZoneITU     : String;
     Grid        : String;
+    MyGrid      : String;   //needed for distance-scored contests
     State       : String;
     ExchRcvd    : String;   //received message box
     SerialRcvd  : String;
@@ -98,6 +100,7 @@ type
     fMultScores   : array[1..3] of Boolean;
     fPointsBase   : Integer;
     fCtryIsFinal  : Boolean;       //a country match skips the multiplier layers
+    fDistKm       : Integer;       //>0: add a point per this many km
     fPointsByBand : TStringList;   //band=points
     fPointsByCont : TStringList;   //continent=points
     fPointsByCtry : TStringList;   //prefix=points
@@ -202,6 +205,11 @@ var
   //with a rule definition is selected.
   MultTracker : TMultTracker;
 
+//Maidenhead locator -> degrees, at the centre of the square. Accepts 2, 4 or
+//6 characters; a bare field resolves to the middle of that field.
+function GridToLatLon(grid : String; out lat, lon : Double) : Boolean;
+//Great circle km between two locators. 0 when either will not parse.
+function GridDistanceKm(const a, b : String) : Double;
 //CQ WPX prefix of a callsign. cqrlog had no such helper.
 function WpxPrefix(call : String) : String;
 //Directory contest definitions live in, and the file name for one contest.
@@ -232,6 +240,61 @@ begin
     Result := ''
   else
     Result := homeDir + cContestDir + PathDelim + s + '.contest'
+end;
+
+function GridToLatLon(grid : String; out lat, lon : Double) : Boolean;
+var
+  g : String;
+begin
+  Result := False;
+  lat := 0; lon := 0;
+  g := UpperCase(Trim(grid));
+  if Length(g) < 2 then exit;
+  if not (g[1] in ['A'..'R']) or not (g[2] in ['A'..'R']) then exit;
+  //field: 20 deg of longitude, 10 of latitude
+  lon := (Ord(g[1]) - Ord('A')) * 20 - 180;
+  lat := (Ord(g[2]) - Ord('A')) * 10 - 90;
+  if Length(g) >= 4 then
+  begin
+    if not (g[3] in ['0'..'9']) or not (g[4] in ['0'..'9']) then exit;
+    lon := lon + (Ord(g[3]) - Ord('0')) * 2;
+    lat := lat + (Ord(g[4]) - Ord('0')) * 1;
+    if Length(g) >= 6 then
+    begin
+      if not (g[5] in ['A'..'X']) or not (g[6] in ['A'..'X']) then exit;
+      lon := lon + (Ord(g[5]) - Ord('A')) * (2/24) + (1/24);
+      lat := lat + (Ord(g[6]) - Ord('A')) * (1/24) + (0.5/24)
+    end
+    else
+    begin
+      //centre of the 2x1 degree square
+      lon := lon + 1; lat := lat + 0.5
+    end
+  end
+  else
+  begin
+    //centre of the 20x10 degree field
+    lon := lon + 10; lat := lat + 5
+  end;
+  Result := True
+end;
+
+function GridDistanceKm(const a, b : String) : Double;
+const
+  R = 6371.0;   //mean earth radius, km
+var
+  la1,lo1,la2,lo2,dLa,dLo,h : Double;
+begin
+  Result := 0;
+  if not GridToLatLon(a,la1,lo1) then exit;
+  if not GridToLatLon(b,la2,lo2) then exit;
+  la1 := la1 * Pi/180; lo1 := lo1 * Pi/180;
+  la2 := la2 * Pi/180; lo2 := lo2 * Pi/180;
+  dLa := la2 - la1;
+  dLo := lo2 - lo1;
+  h := Sqr(Sin(dLa/2)) + Cos(la1)*Cos(la2)*Sqr(Sin(dLo/2));
+  if h > 1 then h := 1;
+  Result := 2 * R * ArcSin(Sqrt(h))
 end;
 
 function WpxPrefix(call : String) : String;
@@ -368,7 +431,8 @@ begin
   else if s = 'ZN'         then Result := mtZoneCQ
   else if s = 'ITUZONE'    then Result := mtZoneITU
   else if s = 'GRIDSQUARE' then Result := mtGrid
-  else if (s = 'GRIDFIELD') or (s = 'GRIDSQUARE4') then Result := mtGrid4
+  else if s = 'GRIDSQUARE4' then Result := mtGrid4
+  else if s = 'GRIDFIELD'   then Result := mtGridField
   else if s = 'CONTINENT'  then Result := mtContinent
   else if s = 'CALLSIGN'   then Result := mtCallsign
   else if s = 'STATE'      then Result := mtState
@@ -465,6 +529,7 @@ begin
     //your own country, which is flat 1 point on every band. Without this the
     //band factor would silently double those too.
     fCtryIsFinal := ini.ReadBool('Contest','PointsByCountryIsFinal',False);
+    fDistKm      := ini.ReadInteger('Contest','PointsPerDistanceKm',0);
     LoadPairs(ini,'PointsByBand',fPointsByBand);
     LoadPairs(ini,'PointsByContinent',fPointsByCont);
     LoadPairs(ini,'PointsByCountry',fPointsByCtry);
@@ -549,6 +614,11 @@ begin
   if not found then
     pts := fPointsBase;
 
+  //Distance contests (WW Digi) add a point per N km between grid centres on
+  //top of the base point, rather than scaling it.
+  if (fDistKm > 0) and (ctx.Grid <> '') and (ctx.MyGrid <> '') then
+    pts := pts + Trunc(GridDistanceKm(ctx.MyGrid,ctx.Grid) / fDistKm);
+
   //Then the multiplicative layers stack on top.
   f := LookupNum(fMultByBand,ctx.Band,1,found);   pts := pts * f;
   f := LookupNum(fMultByCont,ctx.Continent,1,found); pts := pts * f;
@@ -612,6 +682,7 @@ begin
     mtZoneITU   : v := ctx.ZoneITU;
     mtGrid      : v := UpperCase(Copy(Trim(ctx.Grid),1,6));
     mtGrid4     : v := UpperCase(Copy(Trim(ctx.Grid),1,4));
+    mtGridField : v := UpperCase(Copy(Trim(ctx.Grid),1,2));
     mtContinent : v := ctx.Continent;
     mtCallsign  : v := UpperCase(Trim(ctx.Call));
     mtState     : v := UpperCase(Trim(ctx.State));
