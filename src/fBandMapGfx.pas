@@ -61,6 +61,7 @@ type
     procedure cmbSpanChange(Sender: TObject);
     procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
     procedure FormCreate(Sender: TObject);
+    procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure FormKeyUp(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure FormShow(Sender: TObject);
     procedure tmrPollTimer(Sender: TObject);
@@ -112,6 +113,7 @@ type
     procedure ParkFocus;
     function  HitTest(AX, AY : Integer; out AHit : TSpotHit) : Boolean;
     function  SpotVisible(const ASpot : TGfxSpot) : Boolean;
+    function  StepToSpot(ADown : Boolean) : Boolean;
     function  IsWorked(const ACall, ABand, AMode, ALastDate, ALastTime : String) : Boolean;
     procedure UpdateFilterIndicator;
 
@@ -344,6 +346,25 @@ begin
   if (Key = VK_ESCAPE) then
   begin
     frmNewQSO.ReturnToNewQSO;
+    Key := 0
+  end
+end;
+
+{ N1MM-style spot stepping. Up/Down walk to the previous/next spot and QSY
+  there, they do not scroll the view - the viewport follows the radio on its
+  own once FManualPan is cleared. Frequency increases down the plot, so Up
+  means the next spot lower in frequency, which is also the one drawn above.
+
+  Handled in KeyDown rather than KeyUp so held keys auto-repeat, and with
+  Shift=[] so Ctrl/Alt combinations stay free. KeyPreview is already True on
+  this form, so taking the key here is what stops the span combo box from
+  seeing it - which is why the arrows used to zoom. }
+procedure TfrmBandMapGfx.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin
+  if (Shift = []) and ((Key = VK_UP) or (Key = VK_DOWN)) then
+  begin
+    if not StepToSpot(Key = VK_DOWN) then
+      sbStatus.Panels[0].Text := 'No further spot this way';
     Key := 0
   end
 end;
@@ -722,6 +743,76 @@ begin
       end
     end
   end
+end;
+
+{ Move to the spot below (ADown) or above the current frequency and work it,
+  the same way a double click does. Walks the whole store, not just what is on
+  screen, so stepping runs off the end of the viewport and drags it along -
+  that is the N1MM feel. The store is kept sorted ascending by frequency, so
+  going down takes the first spot past the reference and going up takes the
+  last one before it. Honours the display filters, so what steps is what the
+  operator can see. Returns False when there is nothing further that way. }
+function TfrmBandMapGfx.StepToSpot(ADown : Boolean) : Boolean;
+const
+  //a spot sitting on the current frequency must not re-select itself, or
+  //holding the key would never advance
+  cStepEpsKHz = 0.05;
+var
+  i       : Integer;
+  bestIdx : Integer = -1;
+  ref     : Double;
+  sp      : TGfxSpot;
+begin
+  Result := False;
+
+  //with no radio the centre of the plot is the only sensible reference
+  ref := FVfoKHz;
+  if ref <= 0 then
+    ref := FCenterKHz;
+  if ref <= 0 then
+    exit;
+
+  for i:=0 to BandMapStore.Count-1 do
+  begin
+    sp := BandMapStore.Item(i);
+    if not SpotVisible(sp) then
+      Continue;
+
+    if ADown then
+    begin
+      if sp.Freq > ref+cStepEpsKHz then
+      begin
+        bestIdx := i;
+        Break            //sorted ascending: the first one past is the nearest
+      end
+    end
+    else begin
+      if sp.Freq < ref-cStepEpsKHz then
+        bestIdx := i      //keep taking the last one below the reference
+      else
+        Break
+    end
+  end;
+
+  if bestIdx < 0 then
+    exit;
+
+  sp := BandMapStore.Item(bestIdx);
+
+  //stepping is an explicit "take me there", so stop holding the view still
+  FManualPan := False;
+  FDirty     := True;
+
+  //move the fallback reference too. With a radio connected SetVfo overwrites
+  //FVfoKHz within the tick and this is redundant, but with no radio FVfoKHz
+  //stays 0 until the poll timer picks the frequency up from New QSO, and
+  //without this a fast second press would re-select the same spot.
+  FCenterKHz := sp.Freq;
+
+  //loads the call into New QSO and QSYs, exactly like a double click
+  frmNewQSO.NewQSOFromSpot(sp.Call,FloatToStr(sp.Freq),sp.Mode);
+  sbStatus.Panels[0].Text := sp.Call+'   '+FormatFloat('0.00',sp.Freq)+' kHz   '+sp.Mode;
+  Result := True
 end;
 
 function TfrmBandMapGfx.HitTest(AX, AY : Integer; out AHit : TSpotHit) : Boolean;

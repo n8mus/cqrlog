@@ -12,6 +12,7 @@ object frmBandMapGfx: TfrmBandMapGfx
   LCLVersion = '4.6.0.0'
   OnClose = FormClose
   OnCreate = FormCreate
+  OnKeyDown = FormKeyDown
   OnKeyUp = FormKeyUp
   OnShow = FormShow
   object pnlTop: TPanel
