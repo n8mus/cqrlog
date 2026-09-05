@@ -52,6 +52,8 @@ const
   empty_freq = '0.00000';
   empty_azimuth = '0.0';
 
+  cDefaultMonoFont = 'Monospace';
+
   cMaxModes = 47; //One less than count 47 modes (loops have 0..MaxModes)
   cModes: array [0..cMaxModes] of string =
     ('CW', 'SSB', 'FT8', 'FT4', 'FT2', 'RTTY', 'AM', 'AMTOR', 'ATV', 'CLOVER', 'CWQ',
@@ -265,6 +267,7 @@ type
         function  MonthToStr(mon : Integer) : String;
         function  MyContinent:string;
         function  MyDateTimeToStr(DateTime : TDateTime) : String;
+        function  DarkThemeActive : Boolean;
         function  MyDateToStr(Date : TDateTime) : String;
         function  MyDefaultBrowser:String;
         function  MyStrToDate(date : String) : TDateTime;
@@ -2580,6 +2583,19 @@ begin
   G := Max(0, integer(G) + AQuantity);
   B := Max(0, integer(B) + AQuantity);
   Result := RGBToColor(R, G, B);
+end;
+
+function TdmUtils.DarkThemeActive: Boolean;
+var
+  R, G, B: byte;
+  WindowLum, TextLum: integer;
+begin
+  //no direct dark theme api in LCL, so compare luminance of system colors
+  RedGreenBlue(ColorToRGB(clWindow), R, G, B);
+  WindowLum := (R*299 + G*587 + B*114) div 1000;
+  RedGreenBlue(ColorToRGB(clWindowText), R, G, B);
+  TextLum := (R*299 + G*587 + B*114) div 1000;
+  Result := WindowLum < TextLum
 end;
 
 function TdmUtils.IsItIOTA(spot: string): boolean;

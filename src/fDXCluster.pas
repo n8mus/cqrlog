@@ -279,7 +279,7 @@ implementation
 { TfrmDXCluster }
 
 uses dUtils, fDXClusterList, dData, dDXCluster, fMain, fTRXControl, fNewQSO, fBandMap,
-     uMyIni, fPreferences, fpjson, jsonparser, uContestRules;
+     uMyIni, fPreferences, fpjson, jsonparser, uContestRules, uBandMapStore;
 
 procedure TfrmDXCluster.ConnectToWeb;
 var
@@ -1624,6 +1624,20 @@ begin
       else
         frmBandMap.AddToBandMap(kmitocet,call,mode,band,splitstr,cLat,cLng,
                                 cfgClusterColor,ThBckColor, False, isLoTW, isEQSL)
+    end;
+
+    //graphical band map keeps a store of its own, with its own visibility gate,
+    //so the text band map above is not affected either way. Add() only appends
+    //to a pending queue under the store's own critical section - no DB access,
+    //no Synchronize - so it is safe to call here under csSpotWork.
+    if ToBandMap and Assigned(BandMapStore) and BandMapStore.Enabled then
+    begin
+      if cfgUseDXCColors then
+        BandMapStore.Add(kmitocet,call,mode,band,splitstr,sColor,ThBckColor,
+                         gssCluster,isLoTW,isEQSL)
+      else
+        BandMapStore.Add(kmitocet,call,mode,band,splitstr,cfgClusterColor,ThBckColor,
+                         gssCluster,isLoTW,isEQSL)
     end
   end;
 
@@ -1742,7 +1756,16 @@ begin
     2: sColor := cfgConfirmedParkColor;
   else
     sColor := clWindowText;
-  end
+  end;
+
+  //POTA is a third spot source upstream does not have. Feed it to the graphical
+  //band map the same way the cluster tabs do - park-worked color included, so a
+  //new park stands out on the ruler. Split info is empty: POTA spots are simplex.
+  //Runs under csSpotWork like the rest of this function; Add() takes only the
+  //store's own leaf lock, so no new lock ordering is introduced.
+  if Assigned(BandMapStore) and BandMapStore.Enabled then
+    BandMapStore.Add(kmitocet,call,mode,band,'',sColor,ThBckColor,
+                     gssCluster,isLoTW,isEQSL)
 end;
 
 procedure TTelThread.Execute;

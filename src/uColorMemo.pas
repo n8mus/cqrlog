@@ -57,6 +57,8 @@ type
        constructor Create(TheOwner: TComponent); override;
        destructor Destroy; override;
 
+       class function ReadableTextColor(fg,bg:TColor):TColor;
+
 
        function  AddLine(LineText:string;StringColor,BackgroundColor:Tcolor;pom:longint):boolean;
 
@@ -178,6 +180,35 @@ type
 implementation
 
 uses dDXCluster;
+
+class function TcolorMemo.ReadableTextColor(fg,bg:TColor):TColor;
+var r,g,b:byte;
+    lfg,lbg:longint;
+  begin
+    {stored colors may combine a fixed color with a system color that flips
+     in dark mode (e.g. white clWindowText on light LoTW background), so
+     text color has to be adjusted to stay readable against the background}
+    RedGreenBlue(ColorToRGB(fg),r,g,b);
+    lfg:=(r*299+g*587+b*114) div 1000;
+    RedGreenBlue(ColorToRGB(bg),r,g,b);
+    lbg:=(r*299+g*587+b*114) div 1000;
+    if abs(lfg-lbg)>=90 then
+      exit(fg);
+    RedGreenBlue(ColorToRGB(fg),r,g,b);
+    if lbg>127 then
+      begin //light background - darken text, keep its hue
+        r:=r div 3;
+        g:=g div 3;
+        b:=b div 3;
+      end
+    else
+      begin //dark background - lighten text, keep its hue
+        r:=r+(255-r)*2 div 3;
+        g:=g+(255-g)*2 div 3;
+        b:=b+(255-b)*2 div 3;
+      end;
+    result:=RGBToColor(r,g,b);
+  end;
 
 constructor TcolorMemo.Create(TheOwner: TComponent);
   begin

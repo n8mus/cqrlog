@@ -168,7 +168,8 @@ var
 implementation
 {$R *.lfm}
 
-uses dUtils, uMyIni, dData, fRbnServer, dDXCluster, fRbnFilter, fNewQSO, fGrayline,fBandMap, fTRXControl, fMain;
+uses dUtils, uMyIni, dData, fRbnServer, dDXCluster, fRbnFilter, fNewQSO, fGrayline,fBandMap, fTRXControl, fMain,
+     uBandMapStore;
 
 { TfrmRbnMonitor }
 
@@ -982,7 +983,11 @@ begin
              inc(SpotCount.xplanet);
            end;
 
-       if fil_ToBandMap and frmBandMap.Showing and (dxinfo<>'') then
+       //the graphical band map has its own visibility gate, so this block must
+       //run when EITHER map wants the spot - the AddToBandMap call below keeps
+       //its own frmBandMap.Showing check
+       if fil_ToBandMap and (dxinfo<>'') and
+          (frmBandMap.Showing or (Assigned(BandMapStore) and BandMapStore.Enabled)) then
         begin
          dFreq:=0.0; MFreq:='0.0';
          if TryStrToFloat(freq,dFreq) then
@@ -1006,9 +1011,18 @@ begin
            cLat:=0;
            cLon:=0;
            dmUtils.GetCoordinate(dmUtils.GetPfx(dxstn),cLat,cLon);
-           frmBandMap.AddToBandMap(dFreq,dxstn,mode,dmUtils.GetBandFromFreq(Mfreq),'',cLat,cLon,
-                                   sColor,bkColor, False, (LoTW='L'),(eQSL='E') );
-           inc(SpotCount.BandMap);
+           if frmBandMap.Showing then
+           begin
+             frmBandMap.AddToBandMap(dFreq,dxstn,mode,dmUtils.GetBandFromFreq(Mfreq),'',cLat,cLon,
+                                     sColor,bkColor, False, (LoTW='L'),(eQSL='E') );
+             inc(SpotCount.BandMap)
+           end;
+
+           //graphical band map keeps a store of its own; RBN spots are already
+           //in kHz, which is what the store wants
+           if Assigned(BandMapStore) and BandMapStore.Enabled then
+             BandMapStore.Add(dFreq,dxstn,mode,dmUtils.GetBandFromFreq(Mfreq),'',
+                              sColor,bkColor,gssRbn,(LoTW='L'),(eQSL='E'))
         end;
      end;
     WaitMe:=False;

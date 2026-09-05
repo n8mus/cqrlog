@@ -26,7 +26,7 @@ uses
   fWorkedGrids, fPropDK0WCY, fRemind, fContest, fMonWsjtx, fXfldigi,
   dMembership, dSatellite, uRigControl, uRotControl, azidis3, aziloc, fDOKStat,
   fCabrilloExport, uDbUtils, dQTHProfile, uConnectionInfo, znacmech, gline2,
-  fDbSqlSel, fProgress, fDbError, fCountyStat;
+  fDbSqlSel, fProgress, fDbError, fCountyStat, uBandMapStore, fBandMapGfx;
 var
   Splash    : TfrmSplash;
   SFL       : integer;
@@ -140,6 +140,7 @@ begin
   Application.CreateForm(TfrmDXCluster, frmDXCluster);
   Application.CreateForm(TfrmQSODetails, frmQSODetails);
   Application.CreateForm(TfrmBandMap, frmBandMap);
+  Application.CreateForm(TfrmBandMapGfx, frmBandMapGfx);
   Application.CreateForm(TfrmPropagation, frmPropagation);
   Application.CreateForm(TfrmCWKeys, frmCWKeys);
   Application.CreateForm(TfrmSCP, frmSCP);

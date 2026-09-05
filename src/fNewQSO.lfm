@@ -5265,6 +5265,9 @@ object frmNewQSO: TfrmNewQSO
       object MenuItem71: TMenuItem
         Action = acShowBandMap
       end
+      object MenuItemBandMapGfx: TMenuItem
+        Action = acShowBandMapGfx
+      end
       object MenuItem63: TMenuItem
         Action = acContest
       end
@@ -5749,6 +5752,11 @@ object frmNewQSO: TfrmNewQSO
       Category = 'Window'
       Caption = 'Band map'
       OnExecute = acShowBandMapExecute
+    end
+    object acShowBandMapGfx: TAction
+      Category = 'Window'
+      Caption = 'Band map (graphical)'
+      OnExecute = acShowBandMapGfxExecute
     end
     object acAddToBandMap: TAction
       Category = 'File'

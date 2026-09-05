@@ -248,7 +248,8 @@ implementation
 {$R *.lfm}
 
 { TfrmTRXControl }
-uses dUtils, dData, fNewQSO, fBandMap, uMyIni, fGrayline, fRadioMemories;
+uses dUtils, dData, fNewQSO, fBandMap, uMyIni, fGrayline, fRadioMemories,
+     fBandMapGfx;
 
 
 procedure TfrmTRXControl.HLTune(start : Boolean);
@@ -391,6 +392,7 @@ begin
         frmBandMap.CurrentBand := b;
         frmBandMap.CurrentFreq := f * 1000;
         frmBandMap.CurrentMode := m;
+        if Assigned(frmBandMapGfx) then frmBandMapGfx.SetVfo(b, f * 1000, m);
       end;
     end
     else begin
@@ -398,6 +400,7 @@ begin
       frmBandMap.CurrentBand := '';
       frmBandMap.CurrentFreq := 0;
       frmBandMap.CurrentMode := '';
+      if Assigned(frmBandMapGfx) then frmBandMapGfx.SetVfo('', 0, '');
     end;
     exit;
   end;
@@ -474,6 +477,7 @@ begin
   frmBandMap.CurrentBand := b;
   frmBandMap.CurrentFreq := f * 1000;
   frmBandMap.CurrentMode := m;
+  if Assigned(frmBandMapGfx) then frmBandMapGfx.SetVfo(b, f * 1000, m);
 
   if Assigned(radio) then
      begin
