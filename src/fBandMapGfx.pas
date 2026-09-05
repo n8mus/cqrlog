@@ -30,7 +30,9 @@ type
     R    : TRect;
     Call : String[30];
     Mode : String[10];
-    Freq : Double
+    Freq : Double;
+    Park : String[16];   //POTA reference, '' for a plain cluster/RBN spot
+    Grid : String[8]
   end;
 
   { TfrmBandMapGfx }
@@ -114,6 +116,7 @@ type
     function  HitTest(AX, AY : Integer; out AHit : TSpotHit) : Boolean;
     function  SpotVisible(const ASpot : TGfxSpot) : Boolean;
     function  StepToSpot(ADown : Boolean) : Boolean;
+    procedure QsyToSpot(const ACall, AMode, APark, AGrid : String; AFreq : Double);
     function  IsWorked(const ACall, ABand, AMode, ALastDate, ALastTime : String) : Boolean;
     procedure UpdateFilterIndicator;
 
@@ -745,6 +748,20 @@ begin
   end
 end;
 
+{ QSY to a spot and load it into New QSO. POTA spots additionally fill the
+  hunted park ref and, when pota.app gave us one, the park grid - matching what
+  a double click on the POTA tab does. Order matters: NewQSOFromSpot calls
+  edtCallExit, which runs the callbook lookup, so the park ref and grid have to
+  be applied after it or the lookup's home locator overwrites the park. }
+procedure TfrmBandMapGfx.QsyToSpot(const ACall, AMode, APark, AGrid : String; AFreq : Double);
+begin
+  frmNewQSO.NewQSOFromSpot(ACall,FloatToStr(AFreq),AMode);
+  if APark <> '' then
+    frmNewQSO.SetHuntedPark(APark);
+  if AGrid <> '' then
+    frmNewQSO.SetSpotGrid(AGrid)
+end;
+
 { Move to the spot below (ADown) or above the current frequency and work it,
   the same way a double click does. Walks the whole store, not just what is on
   screen, so stepping runs off the end of the viewport and drags it along -
@@ -810,8 +827,21 @@ begin
   FCenterKHz := sp.Freq;
 
   //loads the call into New QSO and QSYs, exactly like a double click
-  frmNewQSO.NewQSOFromSpot(sp.Call,FloatToStr(sp.Freq),sp.Mode);
+  QsyToSpot(sp.Call,sp.Mode,sp.Park,sp.Grid,sp.Freq);
+
+  //NewQSOFromSpot brings New QSO to the front, which would hand it the
+  //keyboard and make the next arrow press move around in there instead of
+  //stepping on. Take the focus back so the operator can keep arrowing.
+  if Showing then
+  begin
+    BringToFront;
+    SetFocus;
+    ParkFocus
+  end;
+
   sbStatus.Panels[0].Text := sp.Call+'   '+FormatFloat('0.00',sp.Freq)+' kHz   '+sp.Mode;
+  if sp.Park <> '' then
+    sbStatus.Panels[0].Text := sbStatus.Panels[0].Text+'   '+sp.Park;
   Result := True
 end;
 
@@ -896,7 +926,7 @@ begin
   if HitTest(FLastMouse.X,FLastMouse.Y,h) then
   begin
     //loads the call into New QSO and QSYs the radio, exactly like the text band map
-    frmNewQSO.NewQSOFromSpot(h.Call,FloatToStr(h.Freq),h.Mode);
+    QsyToSpot(h.Call,h.Mode,h.Park,h.Grid,h.Freq);
     exit
   end;
 
@@ -1100,6 +1130,10 @@ begin
       s := '*'+s;
     if sp.SplitInfo <> '' then
       s := s+' '+sp.SplitInfo;
+    //POTA reference, so a park spot is identifiable on the plot without
+    //having to click it. Kept short - the label column is narrow.
+    if sp.Park <> '' then
+      s := s+' '+sp.Park;
 
     r := Rect(TextX-2, TextY-FRowH div 2, TextX+c.TextWidth(s)+2, TextY+FRowH div 2);
 
@@ -1136,7 +1170,9 @@ begin
     FHits[n].R    := r;
     FHits[n].Call := sp.Call;
     FHits[n].Mode := sp.Mode;
-    FHits[n].Freq := sp.Freq
+    FHits[n].Freq := sp.Freq;
+    FHits[n].Park := sp.Park;
+    FHits[n].Grid := sp.Grid
   end;
 
   //never silently hide spots - say how many did not fit

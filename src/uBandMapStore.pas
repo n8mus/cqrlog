@@ -63,7 +63,13 @@ type
     Source    : TGfxSpotSource;
     AgeStep   : Byte;       //0 fresh, 1 past FirstAging, 2 past SecondAging
     isLoTW    : Boolean;
-    isEQSL    : Boolean
+    isEQSL    : Boolean;
+    //POTA: the park the spotted station is activating, and its grid. Local
+    //addition - upstream has no POTA feed. Carried on the spot so a QSY from
+    //the map can fill pota_hunted_ref and the azimuth grid, exactly the way
+    //the POTA tab's double click does.
+    Park      : String[16];
+    Grid      : String[8]
   end;
 
   TGfxSpotKey = record
@@ -107,7 +113,8 @@ type
       { any thread }
       procedure Add(AFreq : Double; const ACall, AMode, ABand, ASplit : String;
                     AColor, ABgColor : LongInt; ASource : TGfxSpotSource;
-                    AisLoTW : Boolean = False; AisEQSL : Boolean = False);
+                    AisLoTW : Boolean = False; AisEQSL : Boolean = False;
+                    const APark : String = ''; const AGrid : String = '');
       procedure Remove(const ACall, AMode, ABand : String);
 
       { main thread only }
@@ -161,7 +168,8 @@ end;
 
 procedure TBandMapStore.Add(AFreq : Double; const ACall, AMode, ABand, ASplit : String;
                             AColor, ABgColor : LongInt; ASource : TGfxSpotSource;
-                            AisLoTW : Boolean = False; AisEQSL : Boolean = False);
+                            AisLoTW : Boolean = False; AisEQSL : Boolean = False;
+                            const APark : String = ''; const AGrid : String = '');
 var
   s : TGfxSpot;
   l : Integer;
@@ -181,6 +189,8 @@ begin
   s.AgeStep   := 0;
   s.isLoTW    := AisLoTW;
   s.isEQSL    := AisEQSL;
+  s.Park      := APark;
+  s.Grid      := AGrid;
 
   EnterCriticalSection(FCrit);
   try

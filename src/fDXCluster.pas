@@ -208,7 +208,8 @@ type
     procedure tmrPotaTimer(Sender: TObject);
 
     function  ShowSpot(spot : String; var sColor : Integer; var Country : String; FromTelnet : Boolean = True) : Boolean;
-    function  ShowPotaSpot(spot : String; reference, spotMode : String; var sColor : Integer) : Boolean;
+    function  ShowPotaSpot(spot : String; reference, spotMode : String; var sColor : Integer;
+                           parkGrid : String = '') : Boolean;
     function  GetSplit(info : String) :String;
     procedure StoreLastCmd(LastCmd:string);
     function  GetHistCmd:string;
@@ -1657,7 +1658,8 @@ begin
   end
 end;
 
-function TfrmDXCluster.ShowPotaSpot(spot : String; reference, spotMode : String; var sColor : Integer) : Boolean;
+function TfrmDXCluster.ShowPotaSpot(spot : String; reference, spotMode : String; var sColor : Integer;
+                                    parkGrid : String = '') : Boolean;
 var
   call     : String  = '';
   freq     : String  = '';
@@ -1765,7 +1767,7 @@ begin
   //store's own leaf lock, so no new lock ordering is introduced.
   if Assigned(BandMapStore) and BandMapStore.Enabled then
     BandMapStore.Add(kmitocet,call,mode,band,'',sColor,ThBckColor,
-                     gssCluster,isLoTW,isEQSL)
+                     gssCluster,isLoTW,isEQSL,reference,parkGrid)
 end;
 
 procedure TTelThread.Execute;
@@ -2076,7 +2078,7 @@ begin
                 hhmm+'Z';
         EnterCriticalsection(frmDXCluster.csSpotWork);
         try
-          if frmDXCluster.ShowPotaSpot(spot,reference,spotMode,sColor) then
+          if frmDXCluster.ShowPotaSpot(spot,reference,spotMode,sColor,parkGrid) then
           begin
             ThSpot     := spot;
             ThColor    := sColor;
