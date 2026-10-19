@@ -32,9 +32,11 @@ pre-flight notice from lazbuild — both pre-exist and don't affect the build.
 
 ## Install (always keep a fallback)
 
-The source tree here is separate from the installed binary (`/usr/bin/cqrlog`)
-and the live database/config (`~/.config/cqrlog`). Always back up the current
-binary before overwriting it:
+On this machine `/usr/bin/cqrlog` is a **symlink to `src/cqrlog` in this
+repo**, so a successful `lazbuild` *is* the install - `cp src/cqrlog
+/usr/bin/cqrlog` fails with "are the same file". The live database/config
+(`~/.config/cqrlog`) is still separate. If the symlink is ever replaced by a
+real file, back up the current binary before overwriting it:
 
     sudo -v && \
     sudo cp /usr/bin/cqrlog /usr/bin/cqrlog.bak.$(date +%Y%m%d%H%M) && \
