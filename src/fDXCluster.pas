@@ -1395,6 +1395,14 @@ begin
     exit
   end;
   freq    := FloatToStr(kmitocet/1000);
+  //Prefer the mode the spotter actually named in the comment over the one
+  //guessed from the band plan - see TdmDXCluster.ModeFromComment. Without this
+  //an FT8 spot on 6m/2m (and FT4 on 40/15/10m) lands above the band plan's SSB
+  //boundary and is treated as SSB: shown when only SSB is ticked, and counted
+  //as an SSB worked-status lookup.
+  stmp := dmDXCluster.ModeFromComment(info);
+  if stmp <> '' then
+    mode := stmp;
   adif    := dmDXCluster.id_country(call,now,prefix,stmp,waz,itu,cont,lat,long);
   prefix  := dmDXCluster.PfxFromADIF(adif);
   Country := dmDXCluster.CountryFromADIF(adif);
@@ -1433,23 +1441,16 @@ begin
     exit
   end;
 
-  if not cfgCW then
-  begin
-    if (mode='CW') then
-      Result := False
-  end;
-
-  if not cfgSSB  then
-  begin
-    if (mode='SSB') then
-      Result := false
-  end;
-
-  if not cfgDATA  then
-  begin
-    if (mode=cqrini.ReadString('Band'+IntToStr(frmTRXControl.cmbRig.ItemIndex), 'Datamode', 'RTTY')) then
-      Result := false
-  end;
+  //Filter by mode GROUP, not by an exact string: the old code only ever
+  //recognized the literals 'CW', 'SSB' and the configured Datamode, so every
+  //other data mode (FT8, FT4, JS8, PSK, ...) slipped past an unticked DATA.
+  stmp := dmDXCluster.ModeGroup(mode);
+  if (stmp = 'CW') and (not cfgCW) then
+    Result := False;
+  if (stmp = 'SSB') and (not cfgSSB) then
+    Result := False;
+  if (stmp = 'DATA') and (not cfgDATA) then
+    Result := False;
 
   if (result = False) then
    Begin
@@ -1743,11 +1744,16 @@ begin
   if not cqrini.ReadBool('DXCluster','Show'+stmp,True) then
     exit;
 
-  if (not cfgCW) and (mode='CW') then
+  //Same group-based filtering as the Web/Telnet tabs - the POTA API's mode
+  //field is a real mode name ('FT8', 'FT4', 'SSB', ...), which never matched
+  //the configured Datamode string, so data-mode activations were shown with
+  //DATA unticked.
+  stmp := dmDXCluster.ModeGroup(mode);
+  if (stmp = 'CW') and (not cfgCW) then
     exit;
-  if (not cfgSSB) and (mode='SSB') then
+  if (stmp = 'SSB') and (not cfgSSB) then
     exit;
-  if (not cfgDATA) and (mode=cqrini.ReadString('Band'+IntToStr(frmTRXControl.cmbRig.ItemIndex), 'Datamode', 'RTTY')) then
+  if (stmp = 'DATA') and (not cfgDATA) then
     exit;
 
   Result := True;

@@ -82,6 +82,8 @@ type
     function  DXCCInfo(adif : Word;freq,mode : String; var index : integer) : String;
     function  ParkWorkedInfo(reference,band,mode : String; var index : integer) : String;
     function  BandModFromFreq(freq : String;var mode,band : String) : Boolean;
+    function  ModeFromComment(const comment : String) : String;
+    function  ModeGroup(const mode : String) : String;
     function  UseseQSL(call : String) : Boolean;
     function  id_country(znacka: string;datum : TDateTime; var pfx, cont, country, WAZ,
                                posun, ITU, lat, long: string) : Word; overload;
@@ -280,6 +282,82 @@ begin
         trBands.Rollback;
         LeaveCriticalsection(csDX)
     end;
+end;
+
+//The mode a spot really was made on comes from the spotter's comment ("FT8
+//-12dB", "CW", "RTTY"), not from the band plan: BandModFromFreq only knows the
+//three/five coarse segments in cqrlog_common.bands, where e.g. 6m FT8 (50.313)
+//and 2m FT8 (144.174) sit above the SSB boundary and were therefore classified
+//- and filtered - as SSB. Returns '' when the comment names no mode, leaving
+//the frequency-derived guess in place.
+function TdmDXCluster.ModeFromComment(const comment : String) : String;
+const
+  //One entry per token that may appear in a spot comment. Order does not
+  //matter; the first whole-word hit wins.
+  //'AM', 'FM' and 'DV' are deliberately absent: "fm" for "from" and "am" for
+  //the hour are everyday words in spot comments, and the band plan's own AM/FM
+  //segments already cover those modes.
+  cModes : array[0..45] of String = (
+    'CW','SSB','USB','LSB','PHONE','DMR','C4FM','FREEDV',
+    'FT8','FT4','FST4W','FST4','JT65','JT9','JT4','JS8','Q65','MSK144',
+    'FSK441','ISCAT','JTMS','PI4','WSPR','RTTY','PSK','PSK31','PSK63',
+    'PSK125','BPSK','QPSK','OLIVIA','MFSK','CONTESTIA','THOR','THROB',
+    'DOMINO','MT63','HELL','FELDHELL','ROS','SIM31','PACKET','PACTOR',
+    'ARDOP','VARA','DIGI');
+var
+  s : String;
+  i,j : Integer;
+  p   : Integer;
+  okL,okR : Boolean;
+begin
+  Result := '';
+  s := UpperCase(comment);
+  for i := Low(cModes) to High(cModes) do
+  begin
+    p := 1;
+    repeat
+      j := PosEx(cModes[i],s,p);
+      if j = 0 then
+        break;
+      //Whole-word match only, so "AM" does not fire on "SAM" and "CW" does not
+      //fire on a call sign fragment. Digits count as word characters: "FT8"
+      //must not match inside "FT8I", and "CW2" is not CW.
+      okL := (j = 1) or not (s[j-1] in ['A'..'Z','0'..'9','/']);
+      okR := (j+Length(cModes[i]) > Length(s)) or
+             not (s[j+Length(cModes[i])] in ['A'..'Z','0'..'9','/']);
+      if okL and okR then
+      begin
+        Result := cModes[i];
+        exit
+      end;
+      p := j+1
+    until False
+  end
+end;
+
+//Which of the three "Show only spots" mode checkboxes a mode belongs to.
+//'' = unknown, never filtered out.
+function TdmDXCluster.ModeGroup(const mode : String) : String;
+var
+  m : String;
+begin
+  m := UpperCase(Trim(mode));
+  if m = '' then
+  begin
+    Result := '';
+    exit
+  end;
+  if m = 'CW' then
+    Result := 'CW'
+  else if (m = 'SSB') or (m = 'USB') or (m = 'LSB') or (m = 'PHONE') or
+          (m = 'AM') or (m = 'FM') or (m = 'DV') or (m = 'DMR') or
+          (m = 'C4FM') or (m = 'FREEDV') or (m = 'DIGITALVOICE') then
+    Result := 'SSB'
+  else
+    //Everything else a cluster carries is a data mode - including whatever the
+    //operator configured as Datamode, which is what BandModFromFreq returns
+    //for the band plan's data segment.
+    Result := 'DATA'
 end;
 
 function TdmDXCluster.DXCCInfo(adif : Word;freq,mode : String; var index : integer) : String;
